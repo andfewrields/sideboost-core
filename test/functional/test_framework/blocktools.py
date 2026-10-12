@@ -106,7 +106,8 @@ def create_block(hashprev=None, coinbase=None, *, ntime=None, height=None, versi
         block.nVersion = tmpl.get('version')
     else:
         block.set_base_version(VERSIONBITS_LAST_OLD_BLOCK_VERSION)
-    block.nTime = ntime or tmpl.get('curtime') or int(time.time() + 600)
+    # Within SideBoost's 5-minute future-timestamp limit.
+    block.nTime = ntime or tmpl.get('curtime') or int(time.time() + 240)
     block.hashPrevBlock = hashprev or int(tmpl['previousblockhash'], 0x10)
     if tmpl and tmpl.get('bits') is not None:
         block.nBits = struct.unpack('>I', bytes.fromhex(tmpl['bits']))[0]

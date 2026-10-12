@@ -384,7 +384,7 @@ void Chainstate::MaybeUpdateMempoolForReorg(
                 const Coin& coin{CoinsTip().AccessCoin(txin.prevout)};
                 assert(!coin.IsSpent());
                 const auto mempool_spend_height{m_chain.Tip()->nHeight + 1};
-                if (coin.IsCoinBase() && mempool_spend_height - coin.nHeight < COINBASE_MATURITY) {
+                if (coin.IsCoinBase() && mempool_spend_height - coin.nHeight < m_chainman.GetConsensus().nCoinbaseMaturity) {
                     return true;
                 }
             }
@@ -915,7 +915,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     flags |= SCRIPT_VERIFY_NAMES_MEMPOOL;
 
     // The mempool holds txs for the next block, so pass height+1 to CheckTxInputs
-    if (!Consensus::CheckTxInputs(tx, state, m_view, m_active_chainstate.m_chain.Height() + 1, flags, ws.m_base_fees)) {
+    if (!Consensus::CheckTxInputs(tx, state, m_view, m_active_chainstate.m_chain.Height() + 1, m_active_chainstate.m_chainman.GetConsensus().nCoinbaseMaturity, flags, ws.m_base_fees)) {
         return false; // state filled in by CheckTxInputs
     }
 
@@ -2584,7 +2584,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         {
             CAmount txfee = 0;
             TxValidationState tx_state;
-            if (!Consensus::CheckTxInputs(tx, tx_state, view, pindex->nHeight, flags, txfee)) {
+            if (!Consensus::CheckTxInputs(tx, tx_state, view, pindex->nHeight, params.GetConsensus().nCoinbaseMaturity, flags, txfee)) {
                 // Any transaction validation failure in ConnectBlock is a block consensus failure
                 state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                               tx_state.GetRejectReason(),
@@ -2618,7 +2618,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         // * p2sh (when P2SH enabled in flags and excludes coinbase)
         // * witness (when witness enabled in flags and excludes coinbase)
         nSigOpsCost += GetTransactionSigOpCost(tx, view, flags);
-        if (nSigOpsCost > MAX_BLOCK_SIGOPS_COST) {
+        if (nSigOpsCost > params.GetConsensus().nMaxBlockSigOpsCost) {
             state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "too many sigops");
             break;
         }
@@ -3350,7 +3350,7 @@ bool Chainstate::ActivateBestChainStep(BlockValidationState& state, CBlockIndex&
         // any disconnected transactions back to the mempool.
         MaybeUpdateMempoolForReorg(disconnectpool, true);
     }
-    if (m_mempool) m_mempool->check(this->CoinsTip(), this->m_chain.Height() + 1);
+    if (m_mempool) m_mempool->check(this->CoinsTip(), this->m_chain.Height() + 1, m_chainman.GetConsensus().nCoinbaseMaturity);
 
     CheckForkWarningConditions();
 
@@ -4096,7 +4096,7 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
     {
         nSigOps += GetLegacySigOpCount(*tx);
     }
-    if (nSigOps * WITNESS_SCALE_FACTOR > MAX_BLOCK_SIGOPS_COST)
+    if (nSigOps * WITNESS_SCALE_FACTOR > consensusParams.nMaxBlockSigOpsCost)
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "out-of-bounds SigOpCount");
 
     if (fCheckPOW && fCheckMerkleRoot)
@@ -4234,7 +4234,7 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
     }
 
     // Check timestamp
-    if (block.Time() > NodeClock::now() + std::chrono::seconds{MAX_FUTURE_BLOCK_TIME}) {
+    if (block.Time() > NodeClock::now() + std::chrono::seconds{consensusParams.nMaxFutureBlockTime}) {
         return state.Invalid(BlockValidationResult::BLOCK_TIME_FUTURE, "time-too-new", "block timestamp too far in the future");
     }
 
@@ -4305,7 +4305,7 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
     // large by filling up the coinbase witness, which doesn't change
     // the block hash, so we couldn't mark the block as permanently
     // failed).
-    if (GetBlockWeight(block) > MAX_BLOCK_WEIGHT) {
+    if (GetBlockWeight(block) > chainman.GetConsensus().nMaxBlockWeight) {
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : weight limit failed", __func__));
     }
 
@@ -4591,7 +4591,7 @@ MempoolAcceptResult ChainstateManager::ProcessTransaction(const CTransactionRef&
         return MempoolAcceptResult::Failure(state);
     }
     auto result = AcceptToMemoryPool(active_chainstate, tx, GetTime(), /*bypass_limits=*/ false, test_accept);
-    active_chainstate.GetMempool()->check(active_chainstate.CoinsTip(), active_chainstate.m_chain.Height() + 1);
+    active_chainstate.GetMempool()->check(active_chainstate.CoinsTip(), active_chainstate.m_chain.Height() + 1, active_chainstate.m_chainman.GetConsensus().nCoinbaseMaturity);
     return result;
 }
 

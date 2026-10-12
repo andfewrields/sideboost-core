@@ -8,8 +8,8 @@
   },
   "pow": {
     "limit": "000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    "target_spacing": 600,
-    "difficulty_retarget_interval": 2016,
+    "target_spacing": 10,
+    "difficulty_retarget_interval": 500,
     "mindiff_blocks": "no"
   },
   "net": {

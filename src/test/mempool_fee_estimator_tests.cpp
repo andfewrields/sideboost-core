@@ -70,7 +70,7 @@ void AddRemovedBlock(MemPoolFeeRateEstimator& fee_est,
 BOOST_AUTO_TEST_CASE(calculate_max_weight_percentiles)
 {
     // With no chunks neither percentile can be populated.
-    const auto empty = MemPoolFeeRateEstimator::CalculateMaxWeightPercentiles({});
+    const auto empty = MemPoolFeeRateEstimator::CalculateMaxWeightPercentiles({}, DEFAULT_BLOCK_MAX_WEIGHT);
     BOOST_CHECK(empty.p50.IsEmpty());
     BOOST_CHECK(empty.p75.IsEmpty());
     const int32_t chunk_size{10};
@@ -91,7 +91,7 @@ BOOST_AUTO_TEST_CASE(calculate_max_weight_percentiles)
             // Once 50% coverage is reached but 75% is not, only the p50 (conservative)
             // percentile is populated; p75 (economical) is left empty for the caller to floor.
             if (i < 7) {
-                const auto partial = MemPoolFeeRateEstimator::CalculateMaxWeightPercentiles(chunk_feerates);
+                const auto partial = MemPoolFeeRateEstimator::CalculateMaxWeightPercentiles(chunk_feerates, DEFAULT_BLOCK_MAX_WEIGHT);
                 BOOST_CHECK_EQUAL(partial.p50.fee, high_fee_rate.fee);
                 BOOST_CHECK_EQUAL(partial.p50.size, high_fee_rate.size);
                 BOOST_CHECK(partial.p75.IsEmpty());
@@ -100,7 +100,7 @@ BOOST_AUTO_TEST_CASE(calculate_max_weight_percentiles)
             chunk_feerates.emplace_back(low_fee_rate);
         }
     }
-    const auto percentiles = MemPoolFeeRateEstimator::CalculateMaxWeightPercentiles(chunk_feerates);
+    const auto percentiles = MemPoolFeeRateEstimator::CalculateMaxWeightPercentiles(chunk_feerates, DEFAULT_BLOCK_MAX_WEIGHT);
     BOOST_CHECK_EQUAL(percentiles.p50.fee, high_fee_rate.fee);
     BOOST_CHECK_EQUAL(percentiles.p50.size, high_fee_rate.size);
     BOOST_CHECK_EQUAL(percentiles.p75.fee, medium_fee_rate.fee);
@@ -269,13 +269,16 @@ BOOST_AUTO_TEST_CASE(MempoolFeeRateEstimator)
     const CAmount med_fee{CENT / 100};
     const CAmount high_fee{CENT / 10};
     const CAmount very_high_fee{CENT};
+    // The estimator builds a block template, so measure against this chain's
+    // consensus block weight (SideBoost's is far below DEFAULT_BLOCK_MAX_WEIGHT).
+    const uint64_t max_block_weight{m_node.chainman->GetConsensus().nMaxBlockWeight};
     // A mempool that cannot fill 50% of a block leaves both percentiles empty,
     // so both estimate still fall back to the floor.
     {
-        // Add high_fee transactions until mempool weight exceeds 25% of DEFAULT_BLOCK_MAX_WEIGHT.
+        // Add high_fee transactions until mempool weight exceeds 25% of max_block_weight.
         {
             LOCK2(cs_main, m_node.mempool->cs);
-            while ((m_node.mempool->GetTotalTxSize() * WITNESS_SCALE_FACTOR) <= (DEFAULT_BLOCK_MAX_WEIGHT * 25 / 100)) {
+            while ((m_node.mempool->GetTotalTxSize() * WITNESS_SCALE_FACTOR) <= (max_block_weight * 25 / 100)) {
                 TryAddToMempool(*m_node.mempool, entry.Fee(high_fee).FromTx(MakeRandomTx()));
             }
         }
@@ -288,10 +291,10 @@ BOOST_AUTO_TEST_CASE(MempoolFeeRateEstimator)
     // A mempool that fills 50% of a block but not 75% has a conservative (p50)
     // estimate, while the economical (p75) estimate falls back to the floor.
     {
-        // Add med_fee transactions until mempool weight exceeds 50% of DEFAULT_BLOCK_MAX_WEIGHT.
+        // Add med_fee transactions until mempool weight exceeds 50% of max_block_weight.
         {
             LOCK2(cs_main, m_node.mempool->cs);
-            while ((m_node.mempool->GetTotalTxSize() * WITNESS_SCALE_FACTOR) <= (DEFAULT_BLOCK_MAX_WEIGHT * 50 / 100)) {
+            while ((m_node.mempool->GetTotalTxSize() * WITNESS_SCALE_FACTOR) <= (max_block_weight * 50 / 100)) {
                 TryAddToMempool(*m_node.mempool, entry.Fee(med_fee).FromTx(MakeRandomTx()));
             }
         }
@@ -309,7 +312,7 @@ BOOST_AUTO_TEST_CASE(MempoolFeeRateEstimator)
         // is enough to reach the 75% coverage requirement
         {
             LOCK2(cs_main, m_node.mempool->cs);
-            while ((m_node.mempool->GetTotalTxSize() * WITNESS_SCALE_FACTOR) <= (DEFAULT_BLOCK_MAX_WEIGHT * 75 / 100)) {
+            while ((m_node.mempool->GetTotalTxSize() * WITNESS_SCALE_FACTOR) <= (max_block_weight * 75 / 100)) {
                 TryAddToMempool(*m_node.mempool, entry.Fee(low_fee).FromTx(MakeRandomTx()));
             }
         }
@@ -332,7 +335,7 @@ BOOST_AUTO_TEST_CASE(MempoolFeeRateEstimator)
         {
             LOCK2(cs_main, m_node.mempool->cs);
             while ((m_node.mempool->GetTotalTxSize() * WITNESS_SCALE_FACTOR) <=
-                   (DEFAULT_BLOCK_MAX_WEIGHT * 105 / 100)) {
+                   (max_block_weight * 105 / 100)) {
                 TryAddToMempool(*m_node.mempool, entry.Fee(very_high_fee).FromTx(MakeRandomTx()));
             }
         }

@@ -7,6 +7,7 @@
 #define BITCOIN_CONSENSUS_PARAMS_H
 
 #include <consensus/amount.h>
+#include <consensus/consensus.h>
 #include <script/verify_flags.h>
 #include <uint256.h>
 
@@ -162,6 +163,14 @@ struct BIP9Deployment {
 struct Params {
     uint256 hashGenesisBlock;
     int nSubsidyHalvingInterval;
+    /** Coinbase outputs can only be spent after this many new blocks.  */
+    int nCoinbaseMaturity{COINBASE_MATURITY};
+    /** Consensus limits on block weight and sigops cost.  A chain may set
+     *  these lower than the global MAX_BLOCK_WEIGHT / MAX_BLOCK_SIGOPS_COST
+     *  (which remain the upper bounds used for buffers and DoS limits), but
+     *  never higher.  Both should be multiples of WITNESS_SCALE_FACTOR.  */
+    unsigned int nMaxBlockWeight{MAX_BLOCK_WEIGHT};
+    int64_t nMaxBlockSigOpsCost{MAX_BLOCK_SIGOPS_COST};
     /**
      * Hashes of blocks that
      * - are known to be consensus valid, and
@@ -200,6 +209,17 @@ struct Params {
     bool fPowNoRetargeting;
     int64_t nPowTargetSpacing;
     int64_t nPowTargetTimespan;
+    /** Maximum factor by which difficulty may rise (resp. fall) in a single
+     *  retarget, i.e. the actual timespan is clamped to
+     *  [nPowTargetTimespan / nPowMaxDifficultyIncrease,
+     *   nPowTargetTimespan * nPowMaxDifficultyDecrease].  */
+    int64_t nPowMaxDifficultyIncrease{4};
+    int64_t nPowMaxDifficultyDecrease{4};
+    /** Maximum number of seconds a block timestamp may be ahead of the
+     *  node's clock (consensus check).  Must not exceed the global
+     *  MAX_FUTURE_BLOCK_TIME, which remains the bound for header-sync memory
+     *  limits and timestamp grace periods.  */
+    int64_t nMaxFutureBlockTime{2 * 60 * 60};
     std::chrono::seconds PowTargetSpacing() const
     {
         return std::chrono::seconds{nPowTargetSpacing};

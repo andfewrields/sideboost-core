@@ -127,12 +127,38 @@ void CChainParams::ApplyDeploymentOptions(const DeploymentOptions& opts)
 }
 
 /**
+ * Consensus rules shared by all SideBoost networks: ~10 second blocks, and
+ * the limits that scale with them.  See PLAN.md for the rationale.
+ */
+static void SetSideBoostConsensus(Consensus::Params& consensus)
+{
+    consensus.nPowTargetSpacing = 10;
+    consensus.nPowTargetTimespan = 500 * consensus.nPowTargetSpacing; // 500 blocks, ~83 minutes
+    /* Asymmetric retarget cap: difficulty rises at most 2x per window
+       (limits how far a transient merge-miner can push it) but may fall
+       up to 4x (fast recovery when hashrate leaves).  */
+    consensus.nPowMaxDifficultyIncrease = 2;
+    consensus.nPowMaxDifficultyDecrease = 4;
+    /* Shorter than a retarget window, so future-dated timestamps cannot
+       materially stretch a window's apparent duration.  */
+    consensus.nMaxFutureBlockTime = 5 * 60;
+    /* 1/60 of Bitcoin's limits to match the 60x shorter block interval,
+       rounded to the nearest multiple of WITNESS_SCALE_FACTOR.  */
+    consensus.nMaxBlockWeight = 66'668;
+    consensus.nMaxBlockSigOpsCost = 1'332;
+    /* 15x Bitcoin's 100 blocks: ~4.2 hours at 10 s, a quarter of
+       Bitcoin's ~16.7 hours.  */
+    consensus.nCoinbaseMaturity = 1'500;
+}
+
+/**
  * SideBoost main network.
  */
 class CMainParams : public CChainParams {
 public:
     CMainParams(const MainNetOptions& opts) {
         m_chain_type = ChainType::MAIN;
+        SetSideBoostConsensus(consensus);
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
         consensus.nSubsidyHalvingInterval = 210000;
@@ -148,8 +174,6 @@ public:
         consensus.SegwitHeight = 0;
         consensus.MinBIP9WarningHeight = 0;
         consensus.powLimit = uint256{"000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
-        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
-        consensus.nPowTargetSpacing = 10 * 60;
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.enforce_BIP94 = false;
         consensus.fPowNoRetargeting = false;
@@ -242,6 +266,7 @@ class CTestNetParams : public CChainParams {
 public:
     CTestNetParams(const TestNetOptions& opts) {
         m_chain_type = ChainType::TESTNET;
+        SetSideBoostConsensus(consensus);
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
         consensus.nSubsidyHalvingInterval = 210000;
@@ -257,8 +282,6 @@ public:
         consensus.SegwitHeight = 0;
         consensus.MinBIP9WarningHeight = 0;
         consensus.powLimit = uint256{"000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
-        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
-        consensus.nPowTargetSpacing = 10 * 60;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.nMinDifficultySince = 1394838000; // 15 Mar 2014
         consensus.fPowNoRetargeting = false;
@@ -348,6 +371,7 @@ class CTestNet4Params : public CChainParams {
 public:
     CTestNet4Params(const TestNetOptions& opts) {
         m_chain_type = ChainType::TESTNET4;
+        SetSideBoostConsensus(consensus);
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
         consensus.nSubsidyHalvingInterval = 210000;
@@ -363,8 +387,6 @@ public:
         consensus.SegwitHeight = 0;
         consensus.MinBIP9WarningHeight = 0;
         consensus.powLimit = uint256{"000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
-        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
-        consensus.nPowTargetSpacing = 10 * 60;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.enforce_BIP94 = true;
         consensus.fPowNoRetargeting = false;
@@ -493,6 +515,7 @@ public:
         }
 
         m_chain_type = ChainType::SIGNET;
+        SetSideBoostConsensus(consensus);
         consensus.signet_blocks = true;
         consensus.signet_challenge.assign(bin.begin(), bin.end());
         consensus.nSubsidyHalvingInterval = 210000;
@@ -504,8 +527,6 @@ public:
         consensus.BIP66Height = 1;
         consensus.CSVHeight = 1;
         consensus.SegwitHeight = 0;
-        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
-        consensus.nPowTargetSpacing = 10 * 60;
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.enforce_BIP94 = false;
         consensus.fPowNoRetargeting = false;
@@ -585,6 +606,10 @@ public:
     explicit CRegTestParams(const RegTestOptions& opts)
     {
         m_chain_type = ChainType::REGTEST;
+        SetSideBoostConsensus(consensus);
+        /* Testing: Bitcoin's 100-block maturity, as the test frameworks
+           expect.  */
+        consensus.nCoinbaseMaturity = COINBASE_MATURITY;
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
         consensus.nSubsidyHalvingInterval = 150;
@@ -596,8 +621,6 @@ public:
         consensus.SegwitHeight = 0; // Always active unless overridden
         consensus.MinBIP9WarningHeight = 0;
         consensus.powLimit = uint256{"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
-        consensus.nPowTargetTimespan = 24 * 60 * 60; // one day
-        consensus.nPowTargetSpacing = 10 * 60;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.nMinDifficultySince = 0;
         consensus.enforce_BIP94 = opts.enforce_bip94;

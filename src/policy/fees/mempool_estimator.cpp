@@ -93,10 +93,10 @@ std::optional<ActiveTip> GetActiveTip(const ChainstateManager& chainman)
 }
 } // namespace
 
-MemPoolFeeRateEstimator::Percentiles MemPoolFeeRateEstimator::CalculateMaxWeightPercentiles(std::span<const FeePerVSize> chunk_feerates)
+MemPoolFeeRateEstimator::Percentiles MemPoolFeeRateEstimator::CalculateMaxWeightPercentiles(std::span<const FeePerVSize> chunk_feerates, int64_t max_block_weight)
 {
     Assume(std::is_sorted(chunk_feerates.begin(), chunk_feerates.end(), [](const auto& a, const auto& b) { return ByRatio{a} > ByRatio{b}; }));
-    constexpr int64_t total_weight{DEFAULT_BLOCK_MAX_WEIGHT};
+    const int64_t total_weight{max_block_weight};
     const int64_t p50_weight{total_weight / 2};
     const int64_t p75_weight{total_weight * 3 / 4};
     Percentiles percentiles{};
@@ -326,9 +326,6 @@ void MemPoolFeeRateEstimator::MempoolTxsRemovedForBlock(const std::shared_ptr<co
     m_cache.Clear();
 }
 
-// Require at least one block worth of activity across the window before using
-// the coverage ratio as a representative mempool health signal.
-static constexpr uint64_t MIN_REPRESENTATIVE_WINDOW_WEIGHT{DEFAULT_BLOCK_MAX_WEIGHT};
 
 MemPoolFeeRateEstimator::MempoolHealth MemPoolFeeRateEstimator::GetMempoolHealth() const
 {
@@ -348,10 +345,13 @@ MemPoolFeeRateEstimator::MempoolHealth MemPoolFeeRateEstimator::GetMempoolHealth
         total_block_weight += block.m_block_weight;
         total_removed_weight += block.m_removed_block_txs_weight;
     }
+    // Require at least one block worth of activity across the window before using
+    // the coverage ratio as a representative mempool health signal.
+    const uint64_t min_representative_window_weight{m_chainman.GetConsensus().nMaxBlockWeight};
     // Too little block activity for the coverage ratio to be meaningful; skip it.
-    if (total_block_weight < MIN_REPRESENTATIVE_WINDOW_WEIGHT) {
+    if (total_block_weight < min_representative_window_weight) {
         LogDebug(BCLog::ESTIMATEFEE, "%s: mempool health check passed; low activity, total_block_weight=%s minimum=%s",
-                 estimator_name, total_block_weight, MIN_REPRESENTATIVE_WINDOW_WEIGHT);
+                 estimator_name, total_block_weight, min_representative_window_weight);
         return MempoolHealth::HEALTHY;
     }
     const double representation_ratio = static_cast<double>(total_removed_weight) / total_block_weight;
@@ -401,7 +401,7 @@ util::Expected<FeeRateEstimation, FeeRateEstimationError> MemPoolFeeRateEstimato
     if (!blocktemplate) return EstimationError(strprintf("%s: Failed to create block template for fee rate estimation", FeeRateEstimatorTypeToString(estimator_type)));
     // Sort again because the rounding up when converting from weight to vsize may cause slight misorder.
     std::sort(blocktemplate->m_package_feerates.begin(), blocktemplate->m_package_feerates.end(), [](const auto& a, const auto& b) { return ByRatio{a} > ByRatio{b}; });
-    const auto percentiles = CalculateMaxWeightPercentiles(blocktemplate->m_package_feerates);
+    const auto percentiles = CalculateMaxWeightPercentiles(blocktemplate->m_package_feerates, m_chainman.GetConsensus().nMaxBlockWeight);
     // Fall back to a relayable floor (the higher of the min relay fee and the current
     // mempool min fee) for any percentile the mempool was too sparse to fill.
     const FeePerVSize floor{std::max(m_mempool.m_opts.min_relay_feerate, m_mempool.GetMinFee()).GetFeePerVSize()};

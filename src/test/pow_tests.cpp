@@ -14,21 +14,24 @@
 
 BOOST_FIXTURE_TEST_SUITE(pow_tests, BasicTestingSetup)
 
+/* The cases below are Bitcoin's, scaled to SideBoost's 500-block, 5000-second
+   retarget window (heights on window boundaries, timespans x 5000/1209600). */
+
 /* Test calculation of next difficulty target with no constraints applying */
 BOOST_AUTO_TEST_CASE(get_next_work)
 {
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
-    int64_t nLastRetargetTime = 1261130161; // Block #30240
+    int64_t nLastRetargetTime = 1261130161;
     CBlockIndex pindexLast;
-    pindexLast.nHeight = 32255;
-    pindexLast.nTime = 1262152739;  // Block #32255
+    pindexLast.nHeight = 32499;
+    pindexLast.nTime = nLastRetargetTime + 4227; // ~85% of the target timespan
     pindexLast.nBits = 0x1d00ffff;
 
     // Here (and below): expected_nbits is calculated in
     // CalculateNextWorkRequired(); redoing the calculation here would be just
     // reimplementing the same code that is written in pow.cpp. Rather than
     // copy that code, we just hardcode the expected result.
-    unsigned int expected_nbits = 0x1d00d86aU;
+    unsigned int expected_nbits = 0x1d00d86bU;
     BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, nLastRetargetTime, chainParams->GetConsensus()), expected_nbits);
     BOOST_CHECK(PermittedDifficultyTransition(chainParams->GetConsensus(), pindexLast.nHeight+1, pindexLast.nBits, expected_nbits));
 }
@@ -39,24 +42,25 @@ BOOST_AUTO_TEST_CASE(get_next_work_pow_limit)
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
     int64_t nLastRetargetTime = 1231006505; // Block #0
     CBlockIndex pindexLast;
-    pindexLast.nHeight = 2015;
-    pindexLast.nTime = 1233061996;  // Block #2015
+    pindexLast.nHeight = 499;
+    pindexLast.nTime = 1233061996;  // Far slower than the target timespan
     pindexLast.nBits = 0x1e00ffff; // SideBoost's powLimit
     unsigned int expected_nbits = 0x1e00ffffU;
     BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, nLastRetargetTime, chainParams->GetConsensus()), expected_nbits);
     BOOST_CHECK(PermittedDifficultyTransition(chainParams->GetConsensus(), pindexLast.nHeight+1, pindexLast.nBits, expected_nbits));
 }
 
-/* Test the constraint on the lower bound for actual time taken */
+/* Test the constraint on the lower bound for actual time taken: difficulty
+   rises at most 2x per window on SideBoost */
 BOOST_AUTO_TEST_CASE(get_next_work_lower_limit_actual)
 {
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
-    int64_t nLastRetargetTime = 1279008237; // Block #66528
+    int64_t nLastRetargetTime = 1279008237;
     CBlockIndex pindexLast;
-    pindexLast.nHeight = 68543;
-    pindexLast.nTime = 1279297671;  // Block #68543
+    pindexLast.nHeight = 68999;
+    pindexLast.nTime = nLastRetargetTime + 1000; // 5x faster than the target timespan
     pindexLast.nBits = 0x1c05a3f4;
-    unsigned int expected_nbits = 0x1c0168fdU;
+    unsigned int expected_nbits = 0x1c02d1faU;
     BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, nLastRetargetTime, chainParams->GetConsensus()), expected_nbits);
     BOOST_CHECK(PermittedDifficultyTransition(chainParams->GetConsensus(), pindexLast.nHeight+1, pindexLast.nBits, expected_nbits));
     // Test that reducing nbits further would not be a PermittedDifficultyTransition.
@@ -70,8 +74,8 @@ BOOST_AUTO_TEST_CASE(get_next_work_upper_limit_actual)
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
     int64_t nLastRetargetTime = 1263163443; // NOTE: Not an actual block time
     CBlockIndex pindexLast;
-    pindexLast.nHeight = 46367;
-    pindexLast.nTime = 1269211443;  // Block #46367
+    pindexLast.nHeight = 46499;
+    pindexLast.nTime = nLastRetargetTime + 25000; // 5x slower than the target timespan
     pindexLast.nBits = 0x1c387f6f;
     unsigned int expected_nbits = 0x1d00e1fdU;
     BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, nLastRetargetTime, chainParams->GetConsensus()), expected_nbits);
@@ -183,6 +187,36 @@ void sanity_check_chainparams(const ArgsManager& args, ChainType chain_type)
         targ_max /= consensus.nPowTargetTimespan*4;
         BOOST_CHECK(UintToArith256(consensus.powLimit) < targ_max);
     }
+}
+
+/* SideBoost mainnet: 500-block window, difficulty may rise at most 2x and
+   fall at most 4x per retarget.  */
+BOOST_AUTO_TEST_CASE(sideboost_asymmetric_retarget)
+{
+    const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
+    const auto& consensus = chainParams->GetConsensus();
+    BOOST_CHECK_EQUAL(consensus.DifficultyAdjustmentInterval(), 500);
+
+    CBlockIndex pindexLast;
+    pindexLast.nHeight = 999;
+    pindexLast.nBits = 0x1c00ffff;
+    const int64_t first_time = 1800000000;
+    arith_uint256 old_target;
+    old_target.SetCompact(pindexLast.nBits);
+
+    // Window 10x too fast: clamped to 2x harder.
+    pindexLast.nTime = first_time + consensus.nPowTargetTimespan / 10;
+    const unsigned int harder = arith_uint256{old_target / 2}.GetCompact();
+    BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, first_time, consensus), harder);
+    BOOST_CHECK(PermittedDifficultyTransition(consensus, 1000, pindexLast.nBits, harder));
+    BOOST_CHECK(!PermittedDifficultyTransition(consensus, 1000, pindexLast.nBits, arith_uint256{old_target / 4}.GetCompact()));
+
+    // Window 10x too slow: clamped to 4x easier.
+    pindexLast.nTime = first_time + consensus.nPowTargetTimespan * 10;
+    const unsigned int easier = arith_uint256{old_target * 4}.GetCompact();
+    BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, first_time, consensus), easier);
+    BOOST_CHECK(PermittedDifficultyTransition(consensus, 1000, pindexLast.nBits, easier));
+    BOOST_CHECK(!PermittedDifficultyTransition(consensus, 1000, pindexLast.nBits, arith_uint256{old_target * 8}.GetCompact()));
 }
 
 BOOST_AUTO_TEST_CASE(ChainParams_MAIN_sanity)

@@ -1159,7 +1159,7 @@ BOOST_AUTO_TEST_CASE(checktxinputs_invalid_transactions_test)
 
         TxValidationState state;
         CAmount txfee{0};
-        BOOST_CHECK(!Consensus::CheckTxInputs(CTransaction{mtx}, state, inputs, spend_height, 0, txfee));
+        BOOST_CHECK(!Consensus::CheckTxInputs(CTransaction{mtx}, state, inputs, spend_height, COINBASE_MATURITY, 0, txfee));
         BOOST_CHECK(state.IsInvalid());
         BOOST_CHECK_EQUAL(state.GetResult(), expected_result);
         BOOST_CHECK_EQUAL(state.GetRejectReason(), expected_reason);

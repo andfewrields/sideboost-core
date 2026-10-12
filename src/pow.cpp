@@ -69,10 +69,10 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
 
     // Limit adjustment step
     int64_t nActualTimespan = pindexLast->GetBlockTime() - nFirstBlockTime;
-    if (nActualTimespan < params.nPowTargetTimespan/4)
-        nActualTimespan = params.nPowTargetTimespan/4;
-    if (nActualTimespan > params.nPowTargetTimespan*4)
-        nActualTimespan = params.nPowTargetTimespan*4;
+    if (nActualTimespan < params.nPowTargetTimespan/params.nPowMaxDifficultyIncrease)
+        nActualTimespan = params.nPowTargetTimespan/params.nPowMaxDifficultyIncrease;
+    if (nActualTimespan > params.nPowTargetTimespan*params.nPowMaxDifficultyDecrease)
+        nActualTimespan = params.nPowTargetTimespan*params.nPowMaxDifficultyDecrease;
 
     // Retarget
     const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
@@ -106,8 +106,8 @@ bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t heig
     if (params.fPowAllowMinDifficultyBlocks) return true;
 
     if (height % params.DifficultyAdjustmentInterval() == 0) {
-        int64_t smallest_timespan = params.nPowTargetTimespan/4;
-        int64_t largest_timespan = params.nPowTargetTimespan*4;
+        int64_t smallest_timespan = params.nPowTargetTimespan/params.nPowMaxDifficultyIncrease;
+        int64_t largest_timespan = params.nPowTargetTimespan*params.nPowMaxDifficultyDecrease;
 
         const arith_uint256 pow_limit = UintToArith256(params.powLimit);
         arith_uint256 observed_new_target;

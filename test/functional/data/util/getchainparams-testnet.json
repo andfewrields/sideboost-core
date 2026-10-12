@@ -5,8 +5,8 @@
   "subsidy_halving_interval": 210000,
   "pow": {
     "limit": "000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    "target_spacing": 600,
-    "difficulty_retarget_interval": 2016,
+    "target_spacing": 10,
+    "difficulty_retarget_interval": 500,
     "mindiff_blocks": "yes"
   },
   "net": {

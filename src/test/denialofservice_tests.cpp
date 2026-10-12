@@ -154,7 +154,9 @@ BOOST_FIXTURE_TEST_CASE(stale_tip_peer_management, OutboundTest)
 
     const auto time_init{Now<NodeSeconds>()};
     FakeNodeClock clock{time_init};
-    const auto delta{3 * std::chrono::seconds{m_node.chainman->GetConsensus().nPowTargetSpacing} + 1s};
+    // Long enough for the tip to look stale (3 block intervals) and for the
+    // stale-tip check itself to come due (it runs every 10 minutes).
+    const auto delta{std::max<std::chrono::seconds>(3 * std::chrono::seconds{m_node.chainman->GetConsensus().nPowTargetSpacing}, 10min) + 1s};
     connman->Init(options);
     std::vector<CNode *> vNodes;
 

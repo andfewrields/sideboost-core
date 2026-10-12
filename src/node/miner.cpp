@@ -115,7 +115,14 @@ BlockAssembler::BlockAssembler(Chainstate& chainstate,
           if (auto result{CheckMiningOptions(options, /*use_argnames=*/false)}; !result) {
               throw std::runtime_error(util::ErrorString(result).original);
           }
-          return FlattenMiningOptions(std::move(options));
+          auto flat{FlattenMiningOptions(std::move(options))};
+          // The options were checked against the global maximums; the chain's
+          // consensus limits may be lower.
+          const Consensus::Params& consensus{chainstate.m_chainman.GetConsensus()};
+          flat.block_max_weight = std::min<uint64_t>(*flat.block_max_weight, consensus.nMaxBlockWeight);
+          flat.block_reserved_weight = std::min(*flat.block_reserved_weight, *flat.block_max_weight);
+          flat.coinbase_output_max_additional_sigops = std::min<size_t>(flat.coinbase_output_max_additional_sigops, consensus.nMaxBlockSigOpsCost);
+          return flat;
       }()}
 {
 }
@@ -262,7 +269,7 @@ bool BlockAssembler::TestChunkBlockLimits(int64_t chunk_weight, int64_t chunk_si
     if (nBlockWeight + chunk_weight >= m_options.block_max_weight) {
         return false;
     }
-    if (nBlockSigOpsCost + chunk_sigops_cost >= MAX_BLOCK_SIGOPS_COST) {
+    if (nBlockSigOpsCost + chunk_sigops_cost >= static_cast<uint64_t>(chainparams.GetConsensus().nMaxBlockSigOpsCost)) {
         return false;
     }
     return true;

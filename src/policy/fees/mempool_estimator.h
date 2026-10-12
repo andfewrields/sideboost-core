@@ -103,8 +103,9 @@ public:
      * chunks cannot cover the corresponding fraction of a block.
      *
      * @param[in] chunk_feerates Block template chunk fee rates sorted by descending mining score.
+     * @param[in] max_block_weight The chain's consensus block weight limit.
      */
-    static Percentiles CalculateMaxWeightPercentiles(std::span<const FeePerVSize> chunk_feerates);
+    static Percentiles CalculateMaxWeightPercentiles(std::span<const FeePerVSize> chunk_feerates, int64_t max_block_weight);
     util::Expected<FeeRateEstimation, FeeRateEstimationError> EstimateFeeRate(bool conservative) const
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
     unsigned int MaximumTarget() const

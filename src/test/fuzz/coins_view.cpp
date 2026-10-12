@@ -4,6 +4,7 @@
 
 #include <coins.h>
 #include <consensus/amount.h>
+#include <consensus/consensus.h>
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
@@ -329,7 +330,7 @@ void TestCoinsView(FuzzedDataProvider& fuzzed_data_provider, CCoinsViewCache& co
                     // It is not allowed to call CheckTxInputs if CheckTransaction failed
                     return;
                 }
-                if (Consensus::CheckTxInputs(transaction, state, coins_view_cache, fuzzed_data_provider.ConsumeIntegralInRange<int>(0, std::numeric_limits<int>::max()), 0, tx_fee_out)) {
+                if (Consensus::CheckTxInputs(transaction, state, coins_view_cache, fuzzed_data_provider.ConsumeIntegralInRange<int>(0, std::numeric_limits<int>::max()), COINBASE_MATURITY, 0, tx_fee_out)) {
                     assert(MoneyRange(tx_fee_out));
                 }
             },
