@@ -138,21 +138,21 @@ VALID_DATA = [
     #   "00201863143c14c5166804bd19203356da136c985678cd4d27a1b8c6329604903262",
     # ),
     (
-        "nc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q5r8hjk",
+        "sb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qgp4n0m",
         "00201863143c14c5166804bd19203356da136c985678cd4d27a1b8c6329604903262",
     ),
     (
-        "nc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7k66yngc",
+        "sb1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7k8yq3vc",
         "5128751e76e8199196d454941c45d1b3a323f1433bd6751e76e8199196d454941c45d1b3a323f1433bd6",
     ),
     #("NC1SW50QPFU7EQ", "6002751e"),
-    ("nc1zw508d6qejxtdg4y5r3zarvaryvap9zxx", "5210751e76e8199196d454941c45d1b3a323"),
+    ("sb1zw508d6qejxtdg4y5r3zarvaryv5yc4uv", "5210751e76e8199196d454941c45d1b3a323"),
     # (
     #   "tb1qqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesrxh6hy",
     #   "0020000000c4a5cad46221b2a187905e5266362b99d5e91c6ce24d165dab93e86433",
     # ),
     (
-        "nc1qqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesc40env",
+        "sb1qqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesyhaawp",
         "0020000000c4a5cad46221b2a187905e5266362b99d5e91c6ce24d165dab93e86433",
     ),
     # (
@@ -160,16 +160,16 @@ VALID_DATA = [
     #   "5120000000c4a5cad46221b2a187905e5266362b99d5e91c6ce24d165dab93e86433",
     # ),
     (
-        "nc1pqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesjz0sts",
+        "sb1pqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvseswqa5ka",
         "5120000000c4a5cad46221b2a187905e5266362b99d5e91c6ce24d165dab93e86433",
     ),
     (
-        "nc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqwd67vg",
+        "sb1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqj0g639",
         "512079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
     ),
     # PayToAnchor(P2A)
     (
-        "nc1pfees22yrv2",
+        "sb1pfeesxv0pfa",
         "51024e73",
     ),
 ]

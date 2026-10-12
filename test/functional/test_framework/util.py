@@ -588,13 +588,13 @@ def get_temp_default_datadir(temp_dir: pathlib.Path) -> tuple[dict, pathlib.Path
     temp_dir, as well as the complete path it would return."""
     if platform.system() == "Windows":
         env = dict(APPDATA=str(temp_dir))
-        datadir = temp_dir / "Namecoin"
+        datadir = temp_dir / "SideBoost"
     else:
         env = dict(HOME=str(temp_dir))
         if platform.system() == "Darwin":
-            datadir = temp_dir / "Library/Application Support/Namecoin"
+            datadir = temp_dir / "Library/Application Support/SideBoost"
         else:
-            datadir = temp_dir / ".namecoin"
+            datadir = temp_dir / ".sideboost"
     return env, datadir
 
 

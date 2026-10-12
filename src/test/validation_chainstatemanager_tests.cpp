@@ -206,6 +206,9 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_ibd_exit_after_loading_blocks, ChainTe
         for (const bool loading_blocks : {false, true}) {
             for (const bool tip_exists : {false, true}) {
                 for (const bool enough_work : {false, true}) {
+                    // SideBoost's networks have no minimum chain work yet, so a
+                    // tip can never have less than the minimum.
+                    if (!enough_work && chainman.MinimumChainWork() == 0) continue;
                     for (const bool tip_recent : {false, true}) {
                         apply(cached_is_ibd, loading_blocks, tip_exists, enough_work, tip_recent);
                         const bool expected_ibd = cached_is_ibd && (loading_blocks || !tip_exists || !enough_work || !tip_recent);

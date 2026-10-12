@@ -49,7 +49,7 @@ CScript
 getTestAddress ()
 {
   const CTxDestination dest
-    = DecodeDestination ("N5e1vXUUL3KfhPyVjQZSes1qQ7eyarDbUU");
+    = DecodeDestination ("SWMekike92RJhAWT12DwzF1VKfVMMsj2bn");
   BOOST_CHECK (IsValidDestination (dest));
 
   return GetScriptForDestination (dest);

@@ -1,27 +1,21 @@
 {
   "chain": "main",
   "test_chain": false,
-  "genesis": "70c7a9f0a2fb3d48e635a70d5b157c807e58c8fb45eb2c5e2cb7620000000000",
+  "genesis": "ce526ed33908de9c5831c4a66b9f155c0245e210731d1ec62eef75c1f2000000",
   "subsidy_halving_interval": 210000,
   "pow": {
-    "limit": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "limit": "000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "target_spacing": 600,
     "difficulty_retarget_interval": 2016,
     "mindiff_blocks": "no"
   },
   "net": {
-    "default_port": 8334,
-    "magic": "f9beb4fe",
+    "default_port": 8350,
+    "magic": "fbc0b5e3",
     "dns_seeds": [
-      "nmc.seed.quisquis.de.",
-      "seed.nmc.markasoftware.com.",
-      "dnsseed1.nmc.dotbit.zone.",
-      "dnsseed2.nmc.dotbit.zone.",
-      "dnsseed.nmc.testls.space.",
-      "namecoin.seed.cypherstack.com."
     ]
   },
   "addresses": {
-    "bech32_hrp": "nc"
+    "bech32_hrp": "sb"
   }
 }

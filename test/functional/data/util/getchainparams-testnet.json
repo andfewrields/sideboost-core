@@ -1,22 +1,21 @@
 {
   "chain": "test",
   "test_chain": true,
-  "genesis": "08b067b31dc139ee8e7a76a4f2cfcca477c4c06e1ef89f4ae308951907000000",
+  "genesis": "a727900a575ebe9dbb963b05c528f17f9bc5c4986a3fd4c396f98517b7000000",
   "subsidy_halving_interval": 210000,
   "pow": {
-    "limit": "0000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "limit": "000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "target_spacing": 600,
     "difficulty_retarget_interval": 2016,
-    "mindiff_blocks": "bip94"
+    "mindiff_blocks": "yes"
   },
   "net": {
-    "default_port": 18334,
-    "magic": "fabfb5fe",
+    "default_port": 18350,
+    "magic": "fcc1b6e4",
     "dns_seeds": [
-      "dnsseed.test.namecoin.webbtc.com."
     ]
   },
   "addresses": {
-    "bech32_hrp": "tn"
+    "bech32_hrp": "tsb"
   }
 }
