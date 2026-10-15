@@ -147,7 +147,9 @@ static_assert(MAX_BLOCKTXN_DEPTH <= MIN_BLOCKS_TO_KEEP, "MAX_BLOCKTXN_DEPTH too 
  *  degree of disordering of blocks on disk (which make reindexing and pruning harder). We'll probably
  *  want to make this a per-peer adaptive value at some point. */
 static const unsigned int BLOCK_DOWNLOAD_WINDOW = 1024;
-/** Block download timeout base, expressed in multiples of the block interval (i.e. 10 min) */
+/** Block download timeout base, expressed in multiples of the block interval (i.e. 10 min),
+ *  counted as at least BLOCK_STALLING_TIMEOUT_MAX, so that the stalling timeout can still
+ *  escalate before this one applies on chains with fast blocks (SideBoost: 64 s) */
 static constexpr double BLOCK_DOWNLOAD_TIMEOUT_BASE = 1;
 /** Additional block download timeout per parallel downloading peer (i.e. 5 min) */
 static constexpr double BLOCK_DOWNLOAD_TIMEOUT_PER_PEER = 0.5;
@@ -6531,7 +6533,8 @@ bool PeerManagerImpl::SendMessages(CNode& node)
         if (state.vBlocksInFlight.size() > 0) {
             QueuedBlock &queuedBlock = state.vBlocksInFlight.front();
             int nOtherPeersWithValidatedDownloads = m_peers_downloading_from - 1;
-            if (current_time > state.m_downloading_since + std::chrono::seconds{consensusParams.nPowTargetSpacing} * (BLOCK_DOWNLOAD_TIMEOUT_BASE + BLOCK_DOWNLOAD_TIMEOUT_PER_PEER * nOtherPeersWithValidatedDownloads)) {
+            const auto block_interval{std::max<std::chrono::seconds>(consensusParams.PowTargetSpacing(), BLOCK_STALLING_TIMEOUT_MAX)};
+            if (current_time > state.m_downloading_since + block_interval * (BLOCK_DOWNLOAD_TIMEOUT_BASE + BLOCK_DOWNLOAD_TIMEOUT_PER_PEER * nOtherPeersWithValidatedDownloads)) {
                 LogInfo("Timeout downloading block %s, %s", queuedBlock.pindex->GetBlockHash().ToString(), node.DisconnectMsg());
                 node.fDisconnect = true;
                 return true;

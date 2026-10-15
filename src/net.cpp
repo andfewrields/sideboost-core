@@ -10,6 +10,7 @@
 #include <addrdb.h>
 #include <addrman.h>
 #include <banman.h>
+#include <chainparams.h>
 #include <clientversion.h>
 #include <common/args.h>
 #include <common/netif.h>
@@ -4023,8 +4024,10 @@ bool CConnman::OutboundTargetReached(bool historicalBlockServingLimit) const
     if (historicalBlockServingLimit)
     {
         // keep a large enough buffer to at least relay each block once
+        // (a block's serialized size can't exceed its weight)
+        const Consensus::Params& consensus{m_params.GetConsensus()};
         const std::chrono::seconds timeLeftInCycle = GetMaxOutboundTimeLeftInCycle_();
-        const uint64_t buffer = timeLeftInCycle / std::chrono::minutes{10} * MAX_BLOCK_SERIALIZED_SIZE;
+        const uint64_t buffer = timeLeftInCycle / std::chrono::seconds{consensus.nPowTargetSpacing} * uint64_t{consensus.nMaxBlockWeight};
         if (buffer >= nMaxOutboundLimit || nMaxOutboundTotalBytesSentInCycle >= nMaxOutboundLimit - buffer)
             return true;
     }

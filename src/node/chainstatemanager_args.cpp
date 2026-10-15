@@ -38,6 +38,8 @@ util::Result<void> ApplyArgsManOptions(const ArgsManager& args, ChainstateManage
         }
     }
 
+    if (auto value{args.GetIntArg("-assumevalidburial")}) opts.assumed_valid_min_burial = std::chrono::seconds{*value};
+
     if (auto value{args.GetArg("-assumevalid")}) {
         if (auto block_hash{uint256::FromUserHex(*value)}) {
             opts.assumed_valid_block = *block_hash;

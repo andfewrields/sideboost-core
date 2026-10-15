@@ -216,9 +216,10 @@ struct Params {
     int64_t nPowMaxDifficultyIncrease{4};
     int64_t nPowMaxDifficultyDecrease{4};
     /** Maximum number of seconds a block timestamp may be ahead of the
-     *  node's clock (consensus check).  Must not exceed the global
-     *  MAX_FUTURE_BLOCK_TIME, which remains the bound for header-sync memory
-     *  limits and timestamp grace periods.  */
+     *  node's clock (consensus check; also used by header sync and the
+     *  startup check of the chain tip).  Must not exceed the global
+     *  MAX_FUTURE_BLOCK_TIME, which remains the bound for timestamp grace
+     *  periods (TIMESTAMP_WINDOW).  */
     int64_t nMaxFutureBlockTime{2 * 60 * 60};
     std::chrono::seconds PowTargetSpacing() const
     {
