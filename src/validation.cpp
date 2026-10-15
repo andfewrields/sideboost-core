@@ -809,6 +809,13 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, reason);
     }
 
+    // IsStandardTx only checks the global MAX_STANDARD_TX_WEIGHT, which can
+    // exceed this chain's block size.  A transaction too large for a block
+    // could never be mined, so never accept it.
+    if (GetTransactionWeight(tx) > GetMaxStandardTxWeight(m_active_chainstate.m_chainman.GetConsensus())) {
+        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "tx-size");
+    }
+
     // Transactions smaller than 65 non-witness bytes are not relayed to mitigate CVE-2017-12842.
     if (::GetSerializeSize(TX_NO_WITNESS(tx)) < MIN_STANDARD_TX_NONWITNESS_SIZE)
         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "tx-size-small");
@@ -964,7 +971,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         }
     }
 
-    if (nSigOpsCost > MAX_STANDARD_TX_SIGOPS_COST)
+    if (nSigOpsCost > GetMaxStandardTxSigOpsCost(m_active_chainstate.m_chainman.GetConsensus()))
         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "bad-txns-too-many-sigops",
                 strprintf("%d", nSigOpsCost));
 

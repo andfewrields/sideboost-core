@@ -19,6 +19,7 @@
 #include <util/moneystr.h>
 #include <util/translation.h>
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
 
@@ -106,6 +107,12 @@ util::Result<void> ApplyArgsManOptions(const ArgsManager& argsman, const CChainP
 
     mempool_opts.persist_v1_dat = argsman.GetBoolArg("-persistmempoolv1", mempool_opts.persist_v1_dat);
 
+    // By default, never allow a cluster larger than the largest standard
+    // transaction, which is what still fits in one of the chain's blocks: a
+    // chunk too large for a block could never be mined.  (SideBoost: 14,666
+    // vbytes; on Bitcoin-sized blocks the default of 101 kvB is unchanged.)
+    mempool_opts.limits.cluster_size_vbytes = std::min<int64_t>(mempool_opts.limits.cluster_size_vbytes,
+                                                                GetMaxStandardTxWeight(chainparams.GetConsensus()) / WITNESS_SCALE_FACTOR);
     ApplyArgsManOptions(argsman, mempool_opts.limits);
 
     if (mempool_opts.limits.cluster_count > MAX_CLUSTER_COUNT_LIMIT) {

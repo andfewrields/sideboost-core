@@ -159,7 +159,7 @@ struct CoinSelectionParams {
     int tx_noinputs_size = 0;
     /** Indicate that we are subtracting the fee from outputs */
     bool m_subtract_fee_outputs = false;
-    /** When true, always spend all (up to OUTPUT_GROUP_MAX_ENTRIES) or none of the outputs
+    /** When true, always spend all (up to OutputGroupMaxEntries()) or none of the outputs
      * associated with the same address. This helps reduce privacy leaks resulting from address
      * reuse. Dust outputs are not eligible to be added to output groups and thus not considered. */
     bool m_avoid_partial_spends = false;
@@ -208,7 +208,7 @@ struct CoinEligibilityFilter
     /** Maximum cluster count that a single UTXO in the OutputGroup may have. In practice, this filter also caps the
      * maximum descendant count, as a transaction's descendant count is never larger than its cluster count. */
     const uint64_t max_cluster_count;
-    /** When avoid_reuse=true and there are full groups (OUTPUT_GROUP_MAX_ENTRIES), whether or not to use any partial groups.*/
+    /** When avoid_reuse=true and there are full groups (OutputGroupMaxEntries()), whether or not to use any partial groups.*/
     const bool m_include_partial_groups{false};
 
     CoinEligibilityFilter() = delete;

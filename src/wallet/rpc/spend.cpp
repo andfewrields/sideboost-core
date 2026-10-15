@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <chainparams.h>
 #include <common/messages.h>
 #include <consensus/validation.h>
 #include <core_io.h>
@@ -663,8 +664,8 @@ CreatedTransactionResult FundTransaction(CWallet& wallet, const CMutableTransact
             if (weight < min_input_weight) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, weight cannot be less than 165 (41 bytes (size of outpoint + sequence + empty scriptSig) * 4 (witness scaling factor)) + 1 (empty witness)");
             }
-            if (weight > MAX_STANDARD_TX_WEIGHT) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid parameter, weight cannot be greater than the maximum standard tx weight of %d", MAX_STANDARD_TX_WEIGHT));
+            if (weight > GetMaxStandardTxWeight(Params().GetConsensus())) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid parameter, weight cannot be greater than the maximum standard tx weight of %d", GetMaxStandardTxWeight(Params().GetConsensus())));
             }
 
             coinControl.SetInputWeight(COutPoint(txid, vout), weight);
@@ -767,7 +768,7 @@ RPCMethod fundrawtransaction()
                                     },
                                 },
                              },
-                            {"max_tx_weight", RPCArg::Type::NUM, RPCArg::Default{MAX_STANDARD_TX_WEIGHT}, "The maximum acceptable transaction weight.\n"
+                            {"max_tx_weight", RPCArg::Type::NUM, RPCArg::Default{GetMaxStandardTxWeight(Params().GetConsensus())}, "The maximum acceptable transaction weight.\n"
                                                           "Transaction building will fail if this can not be satisfied."},
                         },
                         FundTxDoc()),
@@ -1244,7 +1245,7 @@ RPCMethod send()
                             {"vout_index", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "The zero-based output index, before a change output is added."},
                         },
                     },
-                    {"max_tx_weight", RPCArg::Type::NUM, RPCArg::Default{MAX_STANDARD_TX_WEIGHT}, "The maximum acceptable transaction weight.\n"
+                    {"max_tx_weight", RPCArg::Type::NUM, RPCArg::Default{GetMaxStandardTxWeight(Params().GetConsensus())}, "The maximum acceptable transaction weight.\n"
                                                   "Transaction building will fail if this can not be satisfied."},
                 },
                 FundTxDoc()),
@@ -1445,7 +1446,7 @@ RPCMethod sendall()
             if (coin_control.m_version == TRUC_VERSION) {
                 coin_control.m_max_tx_weight = TRUC_MAX_WEIGHT;
             } else {
-                coin_control.m_max_tx_weight = MAX_STANDARD_TX_WEIGHT;
+                coin_control.m_max_tx_weight = GetMaxStandardTxWeight(Params().GetConsensus());
             }
 
             const bool rbf{options.exists("replaceable") ? options["replaceable"].get_bool() : pwallet->m_signal_rbf};
@@ -1739,7 +1740,7 @@ RPCMethod walletcreatefundedpsbt()
                                     {"vout_index", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "The zero-based output index, before a change output is added."},
                                 },
                             },
-                            {"max_tx_weight", RPCArg::Type::NUM, RPCArg::Default{MAX_STANDARD_TX_WEIGHT}, "The maximum acceptable transaction weight.\n"
+                            {"max_tx_weight", RPCArg::Type::NUM, RPCArg::Default{GetMaxStandardTxWeight(Params().GetConsensus())}, "The maximum acceptable transaction weight.\n"
                                                           "Transaction building will fail if this can not be satisfied."},
                         },
                         FundTxDoc()),

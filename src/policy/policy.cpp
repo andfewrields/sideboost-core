@@ -10,6 +10,7 @@
 #include <coins.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <consensus/params.h>
 #include <consensus/validation.h>
 #include <policy/feerate.h>
 #include <primitives/transaction.h>
@@ -95,6 +96,21 @@ bool IsStandard(const CScript& scriptPubKey, TxoutType& whichType)
     }
 
     return true;
+}
+
+int32_t GetMaxStandardTxWeight(const Consensus::Params& params)
+{
+    // The miner only adds a transaction if reserved + tx weight < block limit.
+    // Round down to a whole number of vbytes, so the limit is exact in vsize.
+    int64_t fits_in_block{int64_t{params.nMaxBlockWeight} - DEFAULT_BLOCK_RESERVED_WEIGHT - 1};
+    fits_in_block -= fits_in_block % WITNESS_SCALE_FACTOR;
+    return static_cast<int32_t>(std::min<int64_t>(MAX_STANDARD_TX_WEIGHT, fits_in_block));
+}
+
+unsigned int GetMaxStandardTxSigOpsCost(const Consensus::Params& params)
+{
+    const int64_t fits_in_block{params.nMaxBlockSigOpsCost - DEFAULT_COINBASE_OUTPUT_MAX_ADDITIONAL_SIGOPS - 1};
+    return static_cast<unsigned int>(std::min<int64_t>(MAX_STANDARD_TX_SIGOPS_COST, fits_in_block));
 }
 
 bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_datacarrier_bytes, bool permit_bare_multisig, const CFeeRate& dust_relay_fee, std::string& reason)

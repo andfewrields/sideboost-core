@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <chainparams.h>
 #include <consensus/amount.h>
 #include <node/context.h>
 #include <policy/policy.h>
@@ -1232,7 +1233,7 @@ BOOST_AUTO_TEST_CASE(check_max_selection_weight)
         /*avoid_partial=*/false,
     };
 
-    int max_weight = MAX_STANDARD_TX_WEIGHT - WITNESS_SCALE_FACTOR * (cs_params.tx_noinputs_size + cs_params.change_output_size);
+    int max_weight = GetMaxStandardTxWeight(Params().GetConsensus()) - WITNESS_SCALE_FACTOR * (cs_params.tx_noinputs_size + cs_params.change_output_size);
     {
         // Scenario 1:
         // The actor starts with 1x 50.0 BTC and 1515x 0.033 BTC (~100.0 BTC total) unspent outputs
@@ -1262,27 +1263,33 @@ BOOST_AUTO_TEST_CASE(check_max_selection_weight)
     {
         // Scenario 2:
 
-        // The actor starts with 400x 0.0625 BTC and 2000x 0.025 BTC (75.0 BTC total) unspent outputs
+        // The actor starts with 80x 0.5 BTC and 300x 0.1 BTC (70.0 BTC total) unspent outputs
         // Then tries to spend 49.5 BTC
         // A combination of coins should be selected, such that the created transaction is not too large
+        // (SideBoost: Bitcoin uses 400x 0.0625 BTC and 2000x 0.025 BTC, but only
+        // ~214 inputs fit in SideBoost's max standard tx weight)
 
         // Perform selection
         const auto result = select_coins(
             target, cs_params, cc, [&](CWallet& wallet) {
                 CoinsResult available_coins;
-                for (int j = 0; j < 400; ++j) {
-                    add_coin(available_coins, wallet, CAmount(0.0625 * COIN), CFeeRate(0), 144, false, 0, true);
+                for (int j = 0; j < 80; ++j) {
+                    add_coin(available_coins, wallet, CAmount(0.5 * COIN), CFeeRate(0), 144, false, 0, true);
                 }
-                for (int j = 0; j < 2000; ++j) {
-                    add_coin(available_coins, wallet, CAmount(0.025 * COIN), CFeeRate(0), 144, false, 0, true);
+                for (int j = 0; j < 300; ++j) {
+                    add_coin(available_coins, wallet, CAmount(0.1 * COIN), CFeeRate(0), 144, false, 0, true);
                 }
                 return available_coins;
             },
             m_node);
 
-        BOOST_CHECK(has_coin(result->GetInputSet(), CAmount(0.0625 * COIN)));
-        BOOST_CHECK(has_coin(result->GetInputSet(), CAmount(0.025 * COIN)));
-        BOOST_CHECK_LE(result->GetWeight(), max_weight);
+        BOOST_REQUIRE(result);
+        BOOST_CHECK(has_coin(result->GetInputSet(), CAmount(0.5 * COIN)));
+        BOOST_CHECK(has_coin(result->GetInputSet(), CAmount(0.1 * COIN)));
+        // SideBoost: this selection can be close to the limit, where a changeless
+        // (BnB) result may use the room otherwise kept for the change output
+        const int change_weight{result->GetAlgo() == SelectionAlgorithm::BNB ? 0 : WITNESS_SCALE_FACTOR * cs_params.change_output_size};
+        BOOST_CHECK_LE(result->GetWeight(), max_weight + WITNESS_SCALE_FACTOR * cs_params.change_output_size - change_weight);
     }
 
     {
@@ -1305,6 +1312,7 @@ BOOST_AUTO_TEST_CASE(check_max_selection_weight)
         // No results
         // 1515 inputs * 68 bytes = 103,020 bytes
         // 103,020 bytes * 4 = 412,080 weight, which is above the MAX_STANDARD_TX_WEIGHT of 400,000
+        // (SideBoost: and far above its 58,664)
         BOOST_CHECK(!result);
     }
 }

@@ -2141,7 +2141,14 @@ PeerManagerImpl::PeerManagerImpl(CConnman& connman, AddrMan& addrman,
       m_banman(banman),
       m_chainman(chainman),
       m_mempool(pool),
-      m_txdownloadman{node::TxDownloadOptions{pool, opts.deterministic_rng}},
+      // Reserve room per peer for one maximum-size standard transaction plus
+      // a child, as Bitcoin does (404,000 = 400,000 + 4,000); SideBoost's
+      // maximum standard transaction is smaller, so is the reservation.
+      m_txdownloadman{node::TxDownloadOptions{
+          .m_mempool = pool,
+          .m_deterministic_txrequest = opts.deterministic_rng,
+          .m_reserved_orphan_weight_per_peer = int64_t{GetMaxStandardTxWeight(chainman.GetConsensus())} +
+              (node::DEFAULT_RESERVED_ORPHAN_WEIGHT_PER_PEER - MAX_STANDARD_TX_WEIGHT)}},
       m_warnings{warnings},
       m_opts{opts},
       m_inbound_inv_bucket(/*rate=*/m_opts.tx_send_rate, /*mult=*/1.0),

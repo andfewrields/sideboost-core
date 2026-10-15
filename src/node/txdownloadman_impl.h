@@ -133,7 +133,7 @@ public:
     TxDownloadManagerImpl(const TxDownloadOptions& options)
         : m_mempool{options.m_mempool},
           m_rng{options.m_deterministic_txrequest},
-          m_orphanage{MakeTxOrphanage()},
+          m_orphanage{MakeTxOrphanage(DEFAULT_MAX_ORPHANAGE_LATENCY_SCORE, options.m_reserved_orphan_weight_per_peer)},
           m_txrequest{options.m_deterministic_txrequest}
     {}
 

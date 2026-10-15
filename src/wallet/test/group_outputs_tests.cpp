@@ -207,8 +207,9 @@ BOOST_AUTO_TEST_CASE(outputs_grouping_tests)
     // ###########################################################################################
 
     const CTxDestination dest7 = *Assert(wallet->GetNewDestination(OutputType::BECH32, ""));
-    uint16_t NUM_SINGLE_ENTRIES = 101;
-    for (unsigned long i = 0; i < NUM_SINGLE_ENTRIES; i++) { // OUTPUT_GROUP_MAX_ENTRIES{100}
+    // SideBoost: OUTPUT_GROUP_MAX_ENTRIES is 15 (Bitcoin: 100), scaled with the max standard tx weight
+    uint16_t NUM_SINGLE_ENTRIES = 16;
+    for (unsigned long i = 0; i < NUM_SINGLE_ENTRIES; i++) { // OUTPUT_GROUP_MAX_ENTRIES{15}
         addCoin(group_verifier.coins_pool, *wallet, dest7, 9 * COIN, /*is_from_me=*/true);
     }
 

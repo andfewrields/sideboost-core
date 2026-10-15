@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <algorithm>
+#include <chainparams.h>
 #include <common/args.h>
 #include <common/messages.h>
 #include <common/system.h>
@@ -44,7 +45,14 @@ TRACEPOINT_SEMAPHORE(coin_selection, attempting_aps_create_tx);
 TRACEPOINT_SEMAPHORE(coin_selection, aps_create_tx_internal);
 
 namespace wallet {
-static constexpr size_t OUTPUT_GROUP_MAX_ENTRIES{100};
+/** Maximum number of outputs in an OutputGroup: Bitcoin's 100, scaled like the
+ *  chain's max standard tx weight, so a full group of legacy inputs (~15% of a
+ *  max-size transaction on Bitcoin) always fits in a transaction (SideBoost: 15). */
+static size_t OutputGroupMaxEntries()
+{
+    const int64_t max_tx_weight{GetMaxStandardTxWeight(Params().GetConsensus())};
+    return std::max<size_t>(1, (100 * max_tx_weight + MAX_STANDARD_TX_WEIGHT / 2) / MAX_STANDARD_TX_WEIGHT);
+}
 
 /** Whether the descriptor represents, directly or not, a witness program. */
 static bool IsSegwit(const Descriptor& desc) {
@@ -626,11 +634,11 @@ FilteredOutputGroups GroupOutputs(const CWallet& wallet,
     }
 
     // We want to combine COutputs that have the same scriptPubKey into single OutputGroups
-    // except when there are more than OUTPUT_GROUP_MAX_ENTRIES COutputs grouped in an OutputGroup.
+    // except when there are more than OutputGroupMaxEntries() COutputs grouped in an OutputGroup.
     // To do this, we maintain a map where the key is the scriptPubKey and the value is a vector of OutputGroups.
     // For each COutput, we check if the scriptPubKey is in the map, and if it is, the COutput is added
     // to the last OutputGroup in the vector for the scriptPubKey. When the last OutputGroup has
-    // OUTPUT_GROUP_MAX_ENTRIES COutputs, a new OutputGroup is added to the end of the vector.
+    // OutputGroupMaxEntries() COutputs, a new OutputGroup is added to the end of the vector.
     typedef std::map<std::pair<CScript, OutputType>, std::vector<OutputGroup>> ScriptPubKeyToOutgroup;
     const auto& insert_output = [&](
             const std::shared_ptr<COutput>& output, OutputType type, size_t ancestors, size_t cluster_count,
@@ -646,9 +654,9 @@ FilteredOutputGroups GroupOutputs(const CWallet& wallet,
         // A pointer is used here so that group can be reassigned later if it is full.
         OutputGroup* group = &groups.back();
 
-        // Check if this OutputGroup is full. We limit to OUTPUT_GROUP_MAX_ENTRIES when using -avoidpartialspends
+        // Check if this OutputGroup is full. We limit to OutputGroupMaxEntries() when using -avoidpartialspends
         // to avoid surprising users with very high fees.
-        if (group->m_outputs.size() >= OUTPUT_GROUP_MAX_ENTRIES) {
+        if (group->m_outputs.size() >= OutputGroupMaxEntries()) {
             // The last output group is full, add a new group to the vector and use that group for the insertion
             groups.emplace_back(coin_sel_params);
             group = &groups.back();
@@ -762,7 +770,7 @@ util::Result<SelectionResult> ChooseSelectionResult(interfaces::Chain& chain, co
     };
 
     // Maximum allowed weight for selected coins.
-    int max_transaction_weight = coin_selection_params.m_max_tx_weight.value_or(MAX_STANDARD_TX_WEIGHT);
+    int max_transaction_weight = coin_selection_params.m_max_tx_weight.value_or(GetMaxStandardTxWeight(Params().GetConsensus()));
     int tx_weight_no_input = coin_selection_params.tx_noinputs_size * WITNESS_SCALE_FACTOR;
     int max_selection_weight = max_transaction_weight - tx_weight_no_input;
     if (max_selection_weight <= 0) {
@@ -883,7 +891,7 @@ util::Result<SelectionResult> SelectCoins(const CWallet& wallet, CoinsResult& av
                                                 coin_selection_params.m_change_fee);
 
         // Verify we haven't exceeded the maximum allowed weight
-        int max_inputs_weight = coin_selection_params.m_max_tx_weight.value_or(MAX_STANDARD_TX_WEIGHT) - (coin_selection_params.tx_noinputs_size * WITNESS_SCALE_FACTOR);
+        int max_inputs_weight = coin_selection_params.m_max_tx_weight.value_or(GetMaxStandardTxWeight(Params().GetConsensus())) - (coin_selection_params.tx_noinputs_size * WITNESS_SCALE_FACTOR);
         if (op_selection_result->GetWeight() > max_inputs_weight) {
             return util::Error{_("The combination of the pre-selected inputs and the wallet automatic inputs selection exceeds the transaction maximum weight. "
                                  "Please try sending a smaller amount or manually consolidating your wallet's UTXOs")};
@@ -909,7 +917,7 @@ util::Result<SelectionResult> AutomaticCoinSelection(const CWallet& wallet, Coin
     // Cases where we have 101+ outputs all pointing to the same destination may result in
     // privacy leaks as they will potentially be deterministically sorted. We solve that by
     // explicitly shuffling the outputs before processing
-    if (coin_selection_params.m_avoid_partial_spends && available_coins.Size() > OUTPUT_GROUP_MAX_ENTRIES) {
+    if (coin_selection_params.m_avoid_partial_spends && available_coins.Size() > OutputGroupMaxEntries()) {
         available_coins.Shuffle(coin_selection_params.rng_fast);
     }
 
@@ -1102,11 +1110,11 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     CoinSelectionParams coin_selection_params{rng_fast}; // Parameters for coin selection, init with dummy
     coin_selection_params.m_avoid_partial_spends = coin_control.m_avoid_partial_spends;
     coin_selection_params.m_include_unsafe_inputs = coin_control.m_include_unsafe_inputs;
-    coin_selection_params.m_max_tx_weight = coin_control.m_max_tx_weight.value_or(MAX_STANDARD_TX_WEIGHT);
+    coin_selection_params.m_max_tx_weight = coin_control.m_max_tx_weight.value_or(GetMaxStandardTxWeight(Params().GetConsensus()));
     coin_selection_params.m_version = coin_control.m_version;
     int minimum_tx_weight = MIN_STANDARD_TX_NONWITNESS_SIZE * WITNESS_SCALE_FACTOR;
-    if (coin_selection_params.m_max_tx_weight.value() < minimum_tx_weight || coin_selection_params.m_max_tx_weight.value() > MAX_STANDARD_TX_WEIGHT) {
-        return util::Error{strprintf(_("Maximum transaction weight must be between %d and %d"), minimum_tx_weight, MAX_STANDARD_TX_WEIGHT)};
+    if (coin_selection_params.m_max_tx_weight.value() < minimum_tx_weight || coin_selection_params.m_max_tx_weight.value() > GetMaxStandardTxWeight(Params().GetConsensus())) {
+        return util::Error{strprintf(_("Maximum transaction weight must be between %d and %d"), minimum_tx_weight, GetMaxStandardTxWeight(Params().GetConsensus()))};
     }
     // Set the long term feerate estimate to the wallet's consolidate feerate
     coin_selection_params.m_long_term_feerate = wallet.m_consolidate_feerate;
@@ -1451,8 +1459,8 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     CTransactionRef tx = MakeTransactionRef(std::move(txNew));
 
     // Limit size
-    if ((sign && GetTransactionWeight(*tx) > MAX_STANDARD_TX_WEIGHT) ||
-        (!sign && tx_sizes.weight > MAX_STANDARD_TX_WEIGHT))
+    if ((sign && GetTransactionWeight(*tx) > GetMaxStandardTxWeight(Params().GetConsensus())) ||
+        (!sign && tx_sizes.weight > GetMaxStandardTxWeight(Params().GetConsensus())))
     {
         return util::Error{_("Transaction too large")};
     }

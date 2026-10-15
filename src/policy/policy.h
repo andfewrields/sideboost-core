@@ -17,6 +17,10 @@
 #include <cstdint>
 #include <string>
 
+namespace Consensus {
+struct Params;
+} // namespace Consensus
+
 class CCoinsViewCache;
 class CFeeRate;
 class CScript;
@@ -42,6 +46,14 @@ inline constexpr unsigned int MIN_STANDARD_TX_NONWITNESS_SIZE{65};
 inline constexpr unsigned int MAX_P2SH_SIGOPS{15};
 /** The maximum number of sigops we're willing to relay/mine in a single tx */
 inline constexpr unsigned int MAX_STANDARD_TX_SIGOPS_COST{MAX_BLOCK_SIGOPS_COST/5};
+/**
+ * The largest standard transaction weight / sigops cost on a given chain:
+ * MAX_STANDARD_TX_WEIGHT / MAX_STANDARD_TX_SIGOPS_COST, but never more than
+ * still fits in one of the chain's blocks next to the default coinbase
+ * reservation.  Larger transactions could never be mined.
+ */
+int32_t GetMaxStandardTxWeight(const Consensus::Params& params);
+unsigned int GetMaxStandardTxSigOpsCost(const Consensus::Params& params);
 /** The maximum number of potentially executed legacy signature operations in a single standard tx */
 inline constexpr unsigned int MAX_TX_LEGACY_SIGOPS{2'500};
 /** Default for -incrementalrelayfee, which sets the minimum feerate increase for mempool limiting or replacement **/

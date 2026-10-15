@@ -41,6 +41,8 @@ struct TxDownloadOptions {
     const CTxMemPool& m_mempool;
     /** Instantiate TxRequestTracker as deterministic (used for tests). */
     bool m_deterministic_txrequest{false};
+    /** Orphanage memory reserved per peer (TxOrphanage::m_reserved_usage_per_peer). */
+    int64_t m_reserved_orphan_weight_per_peer{DEFAULT_RESERVED_ORPHAN_WEIGHT_PER_PEER};
 };
 struct TxDownloadConnectionInfo {
     /** Whether this peer is preferred for transaction download. */
