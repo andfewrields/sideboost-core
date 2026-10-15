@@ -531,14 +531,16 @@ class WalletV3Test(BitcoinTestFramework):
     @cleanup
     def sendall_truc_weight_limit(self):
         self.log.info("Test that sendall follows truc tx weight limit")
-        self.charlie.sendall([self.alice.getnewaddress() for _ in range(300)], add_to_wallet=False, version=2)
+        # SideBoost: 200 outputs (Bitcoin: 300), ~12,800 vB with charlie's
+        # inputs: over the TRUC limit, but within SideBoost's max standard tx size
+        self.charlie.sendall([self.alice.getnewaddress() for _ in range(200)], add_to_wallet=False, version=2)
 
         # check that error is only raised if version is 3
         assert_raises_rpc_error(
                 -4,
                 "Transaction too large" ,
                 self.charlie.sendall,
-                [self.alice.getnewaddress() for _ in range(300)],
+                [self.alice.getnewaddress() for _ in range(200)],
                 version=3
             )
 

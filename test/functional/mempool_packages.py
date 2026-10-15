@@ -199,7 +199,9 @@ class MempoolPackagesTest(BitcoinTestFramework):
         chain = [] # save sent txs for the purpose of checking node1's mempool later (see below)
         for _ in range(DEFAULT_CLUSTER_LIMIT - 1):
             utxo = transaction_package.pop(0)
-            new_tx = self.wallet.send_self_transfer_multi(from_node=self.nodes[0], num_outputs=10, utxos_to_spend=[utxo])
+            # (SideBoost: 2 outputs rather than 10, so the cluster of
+            # DEFAULT_CLUSTER_LIMIT transactions fits the cluster size limit)
+            new_tx = self.wallet.send_self_transfer_multi(from_node=self.nodes[0], num_outputs=2, utxos_to_spend=[utxo])
             txid = new_tx["txid"]
             chain.append(txid)
             if utxo['txid'] is parent_transaction:
@@ -236,15 +238,19 @@ class MempoolPackagesTest(BitcoinTestFramework):
         # First, the basics:
         fork_blocks = create_empty_fork(self.nodes[0])
         mempool0 = self.nodes[0].getrawmempool(False)
-        self.generate(self.nodes[0], 1)
+        # SideBoost: one block may not mine the whole mempool, and node1 can't
+        # hold the rest (lower limits), so only sync blocks
+        self.generate(self.nodes[0], 1, sync_fun=self.sync_blocks)
         self.trigger_reorg(fork_blocks, self.nodes[0])
 
         # Check that the txs are returned to the mempool, and that transaction ordering is
         # unchanged, as it is deterministic.
         assert_equal(self.nodes[0].getrawmempool(), mempool0)
 
-        # Clean-up the mempool
-        self.generate(self.nodes[0], 1)
+        # Clean-up the mempool (SideBoost: blocks are small, so it may take several)
+        while self.nodes[0].getrawmempool():
+            self.generate(self.nodes[0], 1, sync_fun=self.no_op)
+        self.sync_all()
 
         # Now test the case where node1 has a transaction T in its mempool that
         # depends on transactions A and B which are in a mined block, and the

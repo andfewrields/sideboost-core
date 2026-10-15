@@ -10,6 +10,7 @@ from test_framework.blocktools import (
     create_block,
     add_witness_commitment,
     MAX_BLOCK_SIGOPS_WEIGHT,
+    MAX_STANDARD_TX_WEIGHT,
 )
 from test_framework.messages import (
     COutPoint,
@@ -935,23 +936,22 @@ def spenders_taproot_active():
     assert_equal(len(CScriptNum.encode(CScriptNum(OVERSIZE_NUMBER))), 6)
     assert_equal(len(CScriptNum.encode(CScriptNum(OVERSIZE_NUMBER-1))), 5)
 
+    # SideBoost: 999 signatures and keys (~100,000 WU) don't fit in a block, so
+    # the stack limit is tested with 1-of-n multisigs: one signature for the
+    # first key and empty ones for the rest, which CHECKSIGADD skips.
     big_choices = []
     big_scriptops = []
     for i in range(1000):
         r = random.randrange(len(pubs))
         big_choices.append(r)
-        big_scriptops += [pubs[r], OP_CHECKSIGVERIFY]
+        big_scriptops += [pubs[r], OP_CHECKSIGADD if i else OP_CHECKSIG]
 
 
     def big_spend_inputs(ctx):
         """Helper function to construct the script input for t33/t34 below."""
-        # Instead of signing 999 times, precompute signatures for every (key, hashtype) combination
-        sigs = {}
-        for ht in VALID_SIGHASHES_TAPROOT:
-            for k in range(len(pubs)):
-                sigs[(k, ht)] = override(default_sign, hashtype=ht, key=secs[k])(ctx)
         num = get(ctx, "num")
-        return [sigs[(big_choices[i], random.choice(VALID_SIGHASHES_TAPROOT))] for i in range(num - 1, -1, -1)]
+        sig = override(default_sign, hashtype=random.choice(VALID_SIGHASHES_TAPROOT), key=secs[big_choices[0]])(ctx)
+        return [b''] * (num - 1) + [sig]
 
     # Various BIP342 features
     scripts = [
@@ -1021,10 +1021,10 @@ def spenders_taproot_active():
         ("t31", CScript([b'\x02' + pubs[1], OP_CHECKSIGVERIFY, OP_1])),
         # 32) Variant of t28 with "normal" 33-byte pubkey
         ("t32", CScript([csa_high_val, b'\x03' + pubs[1], OP_CHECKSIGADD, csa_high_result, OP_EQUAL])),
-        # 33) 999-of-999 multisig
-        ("t33", CScript(big_scriptops[:1998] + [OP_1])),
-        # 34) 1000-of-1000 multisig
-        ("t34", CScript(big_scriptops[:2000] + [OP_1])),
+        # 33) 1-of-999 multisig (SideBoost: Bitcoin uses 999-of-999)
+        ("t33", CScript(big_scriptops[:1998] + [OP_1, OP_EQUAL])),
+        # 34) 1-of-1000 multisig (SideBoost: Bitcoin uses 1000-of-1000)
+        ("t34", CScript(big_scriptops[:2000] + [OP_1, OP_EQUAL])),
         # 35) Variant of t9 that uses a non-minimally encoded input arg
         ("t35", CScript([bytes([csa_low_val]), pubs[1], OP_CHECKSIGADD, csa_low_result, OP_EQUAL])),
         # 36) Empty script
@@ -1082,7 +1082,7 @@ def spenders_taproot_active():
     add_spender(spenders, "tapscript/1000inputs", leaf="t23", **common, inputs=[getter("sign")] + [b'' for _ in range(999)], failure={"leaf": "t24", "inputs": [getter("sign")] + [b'' for _ in range(1000)]}, **ERR_STACK_SIZE)
     # Test that pushing a MAX_SCRIPT_ELEMENT_SIZE byte stack element is valid, but one longer is not.
     add_spender(spenders, "tapscript/pushmaxlimit", leaf="t25", **common, **SINGLE_SIG, failure={"leaf": "t26"}, **ERR_PUSH_SIZE)
-    # Test that 999-of-999 multisig works (but 1000-of-1000 triggers stack size limits)
+    # Test that 999-key multisig works (but 1000 keys trigger stack size limits)
     add_spender(spenders, "tapscript/bigmulti", leaf="t33", **common, inputs=big_spend_inputs, num=999, failure={"leaf": "t34", "num": 1000}, **ERR_STACK_SIZE)
     # Test that the CLEANSTACK rule is consensus critical in tapscript
     add_spender(spenders, "tapscript/cleanstack", leaf="t36", tap=tap, inputs=[b'\x01'], failure={"inputs": [b'\x01', b'\x01']}, **ERR_CLEANSTACK)
@@ -1435,6 +1435,10 @@ class TaprootTest(BitcoinTestFramework):
         block = create_block(self.tip, coinbase_tx, ntime=self.lastblocktime + 1, txlist=txs)
         witness and add_witness_commitment(block)
         block.solve()
+        # SideBoost: these blocks are dated 1 s apart, so keep the clock within
+        # the 5-minute future-timestamp limit of them.
+        if (node.mocktime or 0) < block.nTime:
+            node.setmocktime(block.nTime)
         block_response = node.submitblock(block.serialize().hex())
         if err_msg is not None:
             assert block_response is not None and err_msg in block_response, "Missing error message '%s' from block response '%s': %s" % (err_msg, "(None)" if block_response is None else block_response, msg)
@@ -1493,7 +1497,8 @@ class TaprootTest(BitcoinTestFramework):
         done = 0
         while done < len(spenders):
             # Compute how many UTXOs to create with this transaction
-            count_this_tx = min(len(spenders) - done, (len(spenders) + 4) // 5, 10000)
+            # (SideBoost: at most 100, so the transaction fits in a block)
+            count_this_tx = min(len(spenders) - done, (len(spenders) + 4) // 5, 100)
 
             fund_tx = CTransaction()
             # Add the 50 highest-value inputs
@@ -1617,8 +1622,23 @@ class TaprootTest(BitcoinTestFramework):
                 if not input_utxos[i].spender.no_fail:
                     fail = fn(tx, i, [utxo.output for utxo in input_utxos], False)
                 input_data.append((fail, success))
-                if self.options.dump_tests:
-                    dump_json_test(tx, input_utxos, i, success, fail)
+
+            # SideBoost: some spenders are large (up to ~47,000 WU), so a combination
+            # of them may not fit in a standard transaction or a block. Put the inputs
+            # back and pick others (a single spender always fits).
+            for i in range(len(input_utxos)):
+                tx.vin[i].scriptSig = input_data[i][1][0]
+                tx.wit.vtxinwit[i].scriptWitness.stack = input_data[i][1][1]
+            if len(input_utxos) > 1 and tx.get_weight() > MAX_STANDARD_TX_WEIGHT - 1000:
+                for utxo in input_utxos:
+                    (mismatching_utxos if utxo.spender.need_vin_vout_mismatch else normal_utxos).append(utxo)
+                left += len(input_utxos)
+                random.shuffle(normal_utxos)
+                random.shuffle(mismatching_utxos)
+                continue
+            if self.options.dump_tests:
+                for i in range(len(input_utxos)):
+                    dump_json_test(tx, input_utxos, i, input_data[i][1], input_data[i][0])
 
             # Sign each input incorrectly once on each complete signing pass, except the very last.
             for fail_input in list(range(len(input_utxos))) + [None]:

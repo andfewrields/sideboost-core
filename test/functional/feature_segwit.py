@@ -35,7 +35,6 @@ from test_framework.script_util import (
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
-    assert_greater_than_or_equal,
     assert_is_hex_string,
     assert_raises_rpc_error,
 )
@@ -111,9 +110,9 @@ class SegWitTest(BitcoinTestFramework):
         self.log.info("Verify sigops are counted in GBT with pre-BIP141 rules before the fork")
         txid = self.nodes[0].sendtoaddress(self.nodes[0].getnewaddress(), 1)
         tmpl = self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
-        assert_equal(tmpl['sizelimit'], 1000000)
+        assert_equal(tmpl['sizelimit'], 16667)  # SideBoost: 66668 weight / 4
         assert 'weightlimit' not in tmpl
-        assert_equal(tmpl['sigoplimit'], 20000)
+        assert_equal(tmpl['sigoplimit'], 333)  # SideBoost: 1332 sigops cost / 4
         assert_equal(tmpl['transactions'][0]['hash'], txid)
         assert_equal(tmpl['transactions'][0]['sigops'], 2)
         assert '!segwit' not in tmpl['rules']
@@ -223,9 +222,9 @@ class SegWitTest(BitcoinTestFramework):
         txid = self.nodes[0].sendtoaddress(self.nodes[0].getnewaddress(), 1)
         raw_tx = self.nodes[0].getrawtransaction(txid, True)
         tmpl = self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
-        assert_greater_than_or_equal(tmpl['sizelimit'], 3999577)  # actual maximum size is lower due to minimum mandatory non-witness data
-        assert_equal(tmpl['weightlimit'], 4000000)
-        assert_equal(tmpl['sigoplimit'], 80000)
+        assert_equal(tmpl['sizelimit'], 66668)  # SideBoost: the block weight limit
+        assert_equal(tmpl['weightlimit'], 66668)
+        assert_equal(tmpl['sigoplimit'], 1332)
         assert_equal(tmpl['transactions'][0]['txid'], txid)
         expected_sigops = 9 if 'txinwitness' in raw_tx["vin"][0] else 8
         assert_equal(tmpl['transactions'][0]['sigops'], expected_sigops)

@@ -163,11 +163,13 @@ class WalletGroupTest(BitcoinTestFramework):
         self.generate(self.nodes[0], 1)
 
         self.log.info("Fill a wallet with 10,000 outputs corresponding to the same scriptPubKey")
-        for _ in range(5):
+        # (SideBoost: 25 transactions of 400 outputs, as 2,000 outputs would
+        # exceed the maximum transaction size)
+        for _ in range(25):
             raw_tx = self.nodes[0].createrawtransaction([{"txid":"0"*64, "vout":0}], [{addr2[0]: 0.05}])
             tx = tx_from_hex(raw_tx)
             tx.vin = []
-            tx.vout = [tx.vout[0]] * 2000
+            tx.vout = [tx.vout[0]] * 400
             funded_tx = self.nodes[0].fundrawtransaction(tx.serialize().hex(), options={'fee_rate': self.fee_rate})
             signed_tx = self.nodes[0].signrawtransactionwithwallet(funded_tx['hex'])
             self.nodes[0].sendrawtransaction(signed_tx['hex'])

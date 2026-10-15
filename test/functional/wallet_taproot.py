@@ -156,7 +156,9 @@ class WalletTaprootTest(BitcoinTestFramework):
                 addr_r = self.make_addr(treefn, keys_pay, i)
                 assert_equal(addr_g, addr_r)
             boring_balance = int(self.boring.getbalance() * 100000000)
-            to_amnt = random.randrange(1000000, boring_balance)
+            # SideBoost: cap the amount so the payment needs few inputs and
+            # stays within the max standard tx weight.
+            to_amnt = random.randrange(1000000, min(boring_balance, 10 * 100000000))
             self.boring.sendtoaddress(address=addr_g, amount=Decimal(to_amnt) / 100000000, subtractfeefromamount=True)
             self.generatetoaddress(self.nodes[0], 1, self.boring.getnewaddress(), sync_fun=self.no_op)
             test_balance = int(rpc_online.getbalance() * 100000000)
@@ -209,7 +211,9 @@ class WalletTaprootTest(BitcoinTestFramework):
                 addr_r = self.make_addr(treefn, keys_pay, i)
                 assert_equal(addr_g, addr_r)
             boring_balance = int(self.boring.getbalance() * 100000000)
-            to_amnt = random.randrange(1000000, boring_balance)
+            # SideBoost: cap the amount so the payment needs few inputs and
+            # stays within the max standard tx weight.
+            to_amnt = random.randrange(1000000, min(boring_balance, 10 * 100000000))
             self.boring.sendtoaddress(address=addr_g, amount=Decimal(to_amnt) / 100000000, subtractfeefromamount=True)
             self.generatetoaddress(self.nodes[0], 1, self.boring.getnewaddress(), sync_fun=self.no_op)
             test_balance = int(psbt_online.getbalance() * 100000000)
@@ -365,12 +369,16 @@ class WalletTaprootTest(BitcoinTestFramework):
             [True, False, True],
             lambda k1, k2, k3: (key(k2), [pk(k2), [pk(k2), multi_a(2, [k1, k2, k3], True)]])
         )
-        rnd_pos = random.randrange(MAX_PUBKEYS_PER_MULTI_A)
+        # SideBoost: one spend of a 999-key multi_a is ~35,000 WU, so the wallet
+        # can't combine several such inputs within the max standard tx weight
+        # (58,664). Use 400 keys, so that up to four inputs still fit.
+        num_keys = min(MAX_PUBKEYS_PER_MULTI_A, 400)
+        rnd_pos = random.randrange(num_keys)
         self.do_test(
             "tr(XPUB,multi_a(1,H...,XPRV,H...))",
-            "tr($2/*,multi_a(1" + (",$H" * rnd_pos) + ",$1/*" + (",$H" * (MAX_PUBKEYS_PER_MULTI_A - 1 - rnd_pos)) + "))",
+            "tr($2/*,multi_a(1" + (",$H" * rnd_pos) + ",$1/*" + (",$H" * (num_keys - 1 - rnd_pos)) + "))",
             [True, False],
-            lambda k1, k2: (key(k2), [multi_a(1, ([H_POINT] * rnd_pos) + [k1] + ([H_POINT] * (MAX_PUBKEYS_PER_MULTI_A - 1 - rnd_pos)))])
+            lambda k1, k2: (key(k2), [multi_a(1, ([H_POINT] * rnd_pos) + [k1] + ([H_POINT] * (num_keys - 1 - rnd_pos)))])
         )
         self.do_test(
             "rawtr(XPRV)",

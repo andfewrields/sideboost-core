@@ -166,10 +166,12 @@ class EstimateFeeTest(BitcoinTestFramework):
         self.num_nodes = 3
         # whitelist peers to speed up tx relay / mempool sync
         self.noban_tx_relay = True
+        # SideBoost: 72000 exceeds the whole block (66668), so block sizes and
+        # the transaction rate below are scaled by 66668/72000.
         self.extra_args = [
             [],
-            ["-blockmaxweight=72000"],
-            ["-blockmaxweight=36000"],
+            ["-blockmaxweight=66668"],
+            ["-blockmaxweight=33334"],
         ]
 
     def setup_network(self):
@@ -205,7 +207,7 @@ class EstimateFeeTest(BitcoinTestFramework):
         for _ in range(numblocks):
             random.shuffle(self.confutxo)
             batch_sendtx_reqs = []
-            for _ in range(random.randrange(100 - 50, 100 + 50)):
+            for _ in range(random.randrange(93 - 46, 93 + 46)):
                 from_index = random.randint(1, 2)
                 (tx_bytes, fee) = small_txpuzzle_randfee(
                     self.wallet,
@@ -226,11 +228,15 @@ class EstimateFeeTest(BitcoinTestFramework):
             self.update_utxo(mined)
 
     def initial_split(self, node):
-        """Split two coinbase UTxOs into many small coins"""
-        self.confutxo = self.wallet.send_self_transfer_multi(
-            from_node=node,
-            utxos_to_spend=[self.wallet.get_utxo() for _ in range(2)],
-            num_outputs=2048)['new_utxos']
+        """Split coinbase UTxOs into many small coins"""
+        # SideBoost: 8 transactions of 256 outputs, as 2048 outputs would
+        # exceed the max standard tx weight
+        self.confutxo = []
+        for _ in range(8):
+            self.confutxo += self.wallet.send_self_transfer_multi(
+                from_node=node,
+                utxos_to_spend=[self.wallet.get_utxo()],
+                num_outputs=256)['new_utxos']
         while len(node.getrawmempool()) > 0:
             self.generate(node, 1, sync_fun=self.no_op)
 

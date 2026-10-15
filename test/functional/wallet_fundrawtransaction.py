@@ -8,7 +8,9 @@
 from decimal import Decimal
 from itertools import product
 from math import ceil
+
 from test_framework.address import address_to_scriptpubkey
+from test_framework.blocktools import MAX_STANDARD_TX_WEIGHT
 
 from test_framework.descriptors import descsum_create
 from test_framework.extendedkey import ExtendedPrivateKey
@@ -1012,16 +1014,20 @@ class RawTransactionsTest(BitcoinTestFramework):
         wallet = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
         recipient = self.nodes[0].get_wallet_rpc("large")
         outputs = {}
-        rawtx = recipient.createrawtransaction([], {wallet.getnewaddress(): 147.99899260})
+        # SideBoost: sized from the max standard tx weight (Bitcoin: 1480 inputs
+        # needed out of 1500 outputs).
+        num_inputs_needed = ceil(MAX_STANDARD_TX_WEIGHT / 272)
+        num_outputs = num_inputs_needed + 20
+        rawtx = recipient.createrawtransaction([], {wallet.getnewaddress(): Decimal("0.1") * num_inputs_needed - Decimal("0.0010074")})
 
-        # Make 1500 0.1 BTC outputs. The amount that we target for funding is in
+        # Make num_outputs 0.1 BTC outputs. The amount that we target for funding is in
         # the BnB range when these outputs are used.  However if these outputs
         # are selected, the transaction will end up being too large, so it
         # shouldn't use BnB and instead fall back to Knapsack but that behavior
         # is not implemented yet. For now we just check that we get an error.
         # First, force the wallet to bulk-generate the addresses we'll need.
-        recipient.keypoolrefill(1500)
-        for _ in range(1500):
+        recipient.keypoolrefill(num_outputs)
+        for _ in range(num_outputs):
             outputs[recipient.getnewaddress()] = 0.1
         wallet.sendmany("", outputs, fee_rate=self.fee_rate_sats_per_vb)
         self.generate(self.nodes[0], 10)
@@ -1108,8 +1114,9 @@ class RawTransactionsTest(BitcoinTestFramework):
         assert_fee_amount(funded_tx4["fee"], tx4_vsize, Decimal(0.0001))
 
         # Funding with weight at csuint boundaries should not cause problems
+        # (SideBoost: the 65536 boundary is above the max standard tx weight,
+        # so only the 253 boundary applies)
         funded_tx = wallet.fundrawtransaction(raw_tx, input_weights=[{"txid": ext_utxo["txid"], "vout": ext_utxo["vout"], "weight": 255}], fee_rate=2)
-        funded_tx = wallet.fundrawtransaction(raw_tx, input_weights=[{"txid": ext_utxo["txid"], "vout": ext_utxo["vout"], "weight": 65539}], fee_rate=2)
 
         self.nodes[2].unloadwallet("extfund")
 
@@ -1319,18 +1326,20 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.nodes[2].createwallet("test_weight_limits")
         wallet = self.nodes[2].get_wallet_rpc("test_weight_limits")
 
+        # 272 WU per input (273 when high-s); picking num_inputs_over_max inputs will exceed the max standard tx weight.
+        # SideBoost: derived from the max standard tx weight (Bitcoin: 1471)
+        num_inputs_over_max = ceil(MAX_STANDARD_TX_WEIGHT / 272)
         outputs = []
-        for _ in range(1472):
+        for _ in range(num_inputs_over_max + 1):
             outputs.append({wallet.getnewaddress(address_type="legacy"): 0.1})
         txid = self.nodes[0].send(outputs=outputs, change_position=0, fee_rate=self.fee_rate_sats_per_vb)["txid"]
         self.generate(self.nodes[0], 1)
 
-        # 272 WU per input (273 when high-s); picking 1471 inputs will exceed the max standard tx weight.
-        rawtx = wallet.createrawtransaction([], [{wallet.getnewaddress(): 0.1 * 1471}])
+        rawtx = wallet.createrawtransaction([], [{wallet.getnewaddress(): 0.1 * num_inputs_over_max}])
 
-        # 1) Try to fund transaction only using the preset inputs (pick all 1472 inputs to cover the fee)
+        # 1) Try to fund transaction only using the preset inputs (pick all num_inputs_over_max + 1 inputs to cover the fee)
         input_weights = []
-        for i in range(1, 1473):  # skip first output as it is the parent tx change output
+        for i in range(1, num_inputs_over_max + 2):  # skip first output as it is the parent tx change output
             input_weights.append({"txid": txid, "vout": i, "weight": 273})
         assert_raises_rpc_error(-4, "Transaction too large", wallet.fundrawtransaction, hexstring=rawtx, input_weights=input_weights)
 
@@ -1339,7 +1348,7 @@ class RawTransactionsTest(BitcoinTestFramework):
                                 wallet.fundrawtransaction, hexstring=rawtx)
 
         # 3) Pre-select some inputs and let the wallet fill-up the remaining amount
-        inputs = input_weights[0:1000]
+        inputs = input_weights[0:num_inputs_over_max * 2 // 3]
         assert_raises_rpc_error(-4, "The combination of the pre-selected inputs and the wallet automatic inputs selection exceeds the transaction maximum weight. Please try sending a smaller amount or manually consolidating your wallet's UTXOs",
                                 wallet.fundrawtransaction, hexstring=rawtx, input_weights=inputs)
 

@@ -183,7 +183,10 @@ class MempoolCoinbaseTest(BitcoinTestFramework):
         fork_blocks = create_empty_fork(self.nodes[0], fork_length=FORK_LENGTH)
 
         # Jump node and MTP 300 seconds and generate a slightly weaker chain than reorg one
-        self.nodes[0].setmocktime(future)
+        # (SideBoost: move node1's clock too, or it rejects these blocks under
+        # the 5-minute future-timestamp limit)
+        for node in self.nodes:
+            node.setmocktime(future)
         self.generate(self.nodes[0], FORK_LENGTH - 1)
         block_time = self.nodes[0].getblock(self.nodes[0].getbestblockhash())['time']
         assert(block_time >= now + 300)

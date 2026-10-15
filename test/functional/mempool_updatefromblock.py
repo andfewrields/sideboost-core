@@ -26,6 +26,11 @@ class MempoolUpdateFromBlockTest(BitcoinTestFramework):
 
     def trigger_reorg(self, fork_blocks):
         """Trigger reorg of the fork blocks."""
+        # SideBoost: fork blocks are dated 1 s apart; keep the clock within the
+        # 5-minute future-timestamp limit of the newest one.
+        newest = fork_blocks[-1].nTime
+        if (self.nodes[0].mocktime or 0) < newest:
+            self.nodes[0].setmocktime(newest)
         for block in fork_blocks:
             self.nodes[0].submitblock(block.serialize().hex())
         assert_equal(self.nodes[0].getbestblockhash(), fork_blocks[-1].hash_hex)
@@ -49,7 +54,9 @@ class MempoolUpdateFromBlockTest(BitcoinTestFramework):
 
         # Prep for fork with empty blocks to not use invalidateblock directly
         # for reorg case. The rpc has different codepath
-        fork_blocks = create_empty_fork(self.nodes[0], fork_length=7)
+        # (SideBoost: the batches below need several blocks each, so the fork
+        # must be longer)
+        fork_blocks = create_empty_fork(self.nodes[0], fork_length=40)
 
         tx_id = []
         tx_size = []
@@ -88,8 +95,9 @@ class MempoolUpdateFromBlockTest(BitcoinTestFramework):
                 # The created transactions are mined into blocks by batches.
                 self.log.info('The batch of {} transactions has been accepted into the mempool.'.format(len(self.nodes[0].getrawmempool())))
                 self.generate(self.nodes[0], 1)[0]
-                assert_equal(len(self.nodes[0].getrawmempool()), 0)
-                self.log.info('All of the transactions from the current batch have been mined into a block.')
+                while self.nodes[0].getrawmempool():  # SideBoost: may need several blocks
+                    self.generate(self.nodes[0], 1)
+                self.log.info('All of the transactions from the current batch have been mined into blocks.')
             elif tx_count == size:
                 # At the end the old fork is submitted to cause reorg, and all of the created
                 # transactions should be re-added from disconnected blocks to the mempool.
@@ -112,29 +120,35 @@ class MempoolUpdateFromBlockTest(BitcoinTestFramework):
             assert_equal(entry['ancestorsize'], sum(tx_size[0:(k + 1)]))
 
         self.generate(self.nodes[0], 1)
-        assert_equal(self.nodes[0].getrawmempool(), [])
+        while self.nodes[0].getrawmempool():  # SideBoost: may need several blocks
+            self.generate(self.nodes[0], 1)
         wallet.rescan_utxos()
 
     def test_max_disconnect_pool_bytes(self):
         self.log.info('Creating independent transactions to test MAX_DISCONNECTED_TX_POOL_BYTES limit during reorg')
 
-        # Generate coins for the hundreds of transactions we will make
-        parent_target_vsize = 100_000
+        # Generate coins for the hundreds of transactions we will make.
+        # SideBoost: parents must fit in a block (one per block), so it takes
+        # ~1,400 of them and as many blocks to exceed the disconnect pool limit
+        # (Bitcoin: 100,000 vbyte parents, under 60 blocks).
+        parent_target_vsize = 14_000
+        num_parents = MAX_DISCONNECTED_TX_POOL_BYTES // parent_target_vsize + 1
         wallet = MiniWallet(self.nodes[0])
-        self.generate(wallet, (MAX_DISCONNECTED_TX_POOL_BYTES // parent_target_vsize) + 100)
+        self.generate_with_mocktime(wallet, num_parents + 100)
 
         assert_equal(self.nodes[0].getrawmempool(), [])
 
         # Set up empty fork blocks ahead of time, needs to be longer than full fork made later
-        fork_blocks = create_empty_fork(self.nodes[0], fork_length=60)
+        fork_blocks = create_empty_fork(self.nodes[0], fork_length=num_parents + 60)
 
         large_std_txs = []
         # Add children to ensure they're recursively removed if disconnectpool trimming of parent occurs
         small_child_txs = []
         aggregate_serialized_size = 0
         while aggregate_serialized_size < MAX_DISCONNECTED_TX_POOL_BYTES:
-            # Mine parents in FIFO order via fee ordering
-            large_std_txs.append(wallet.create_self_transfer(target_vsize=parent_target_vsize, fee=Decimal("0.00400000") - (Decimal("0.00001000") * len(large_std_txs))))
+            # Mine parents in FIFO order via fee ordering (SideBoost: starting
+            # higher, as there are ~1,400 parents)
+            large_std_txs.append(wallet.create_self_transfer(target_vsize=parent_target_vsize, fee=Decimal("0.03000000") - (Decimal("0.00001000") * len(large_std_txs))))
             small_child_txs.append(wallet.create_self_transfer(utxo_to_spend=large_std_txs[-1]['new_utxo']))
             # Slight underestimate of dynamic cost, so we'll be over during reorg
             aggregate_serialized_size += len(large_std_txs[-1]["tx"].serialize())
@@ -145,7 +159,7 @@ class MempoolUpdateFromBlockTest(BitcoinTestFramework):
         assert_equal(self.nodes[0].getmempoolinfo()["size"], len(large_std_txs))
 
         # Mine non-empty chain that will be reorged shortly
-        self.generate(self.nodes[0], len(fork_blocks) - 1)
+        self.generate_with_mocktime(self.nodes[0], len(fork_blocks) - 1)
         assert_equal(self.nodes[0].getrawmempool(), [])
 
         # Stick children in mempool, evicted with parent potentially
@@ -169,6 +183,13 @@ class MempoolUpdateFromBlockTest(BitcoinTestFramework):
         # The txns at the end of the list, or most recently confirmed, should have been trimmed
         assert_equal(parent_presence, [tx["txid"] in mempool for tx in small_child_txs])
         assert_equal(parent_presence, [True] * expected_parent_count + [False] * (len(large_std_txs) - expected_parent_count))
+
+        # SideBoost: the remaining ~1,400 parents would take as many blocks to
+        # mine (on Bitcoin the next test's 101 blocks clear them), so restart
+        # with an empty mempool instead.
+        mocktime = self.nodes[0].mocktime
+        self.restart_node(0, extra_args=self.extra_args[0] + ["-persistmempool=0", f"-mocktime={mocktime}"])
+        self.nodes[0].setmocktime(mocktime)
 
     def test_chainlimits_exceeded(self):
         self.log.info('Check that too long chains on reorg are handled')

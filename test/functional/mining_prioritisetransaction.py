@@ -280,7 +280,9 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         self.nodes[0].prioritisetransaction(txid=txids[0][0], fee_delta=int(3*base_fee*COIN))
         assert txids[0][0] in self.nodes[0].getprioritisedtransactions()
 
-        self.generate(self.nodes[0], 1)
+        # SideBoost: a block only fits one of these large transactions, so mine
+        # two: the prioritised one first, then a high-fee one.
+        self.generate(self.nodes[0], 2)
 
         mempool = self.nodes[0].getrawmempool()
         self.log.info("Assert that prioritised transaction was mined")

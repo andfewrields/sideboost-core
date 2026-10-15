@@ -393,7 +393,9 @@ class ToolWalletTest(BitcoinTestFramework):
         self.generate(self.nodes[0], 101)
         def_wallet = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
         outputs = {}
-        for i in range(500):
+        # SideBoost: 150 inputs (~27 kB) still spans several pages, while
+        # fitting within the max standard tx weight (500 would not).
+        for i in range(150):
             outputs[wallet.getnewaddress(address_type="p2sh-segwit")] = 0.01
         def_wallet.sendmany(amounts=outputs)
         self.generate(self.nodes[0], 1)
@@ -401,7 +403,9 @@ class ToolWalletTest(BitcoinTestFramework):
         self.generate(self.nodes[0], 1)
         assert_equal(send_res["complete"], True)
         tx = wallet.gettransaction(txid=send_res["txid"], verbose=True)
-        assert_greater_than(tx["decoded"]["size"], 70000)
+        # SideBoost: a standard tx can't exceed the 64 KiB maximum page size
+        # (max tx weight 58,664), but it still spans several default 4 KiB pages.
+        assert_greater_than(tx["decoded"]["size"], 4 * 4096)
 
         self.stop_node(0)
 

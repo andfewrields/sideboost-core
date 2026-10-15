@@ -190,8 +190,8 @@ class ImportDescriptorsTest(BitcoinTestFramework):
             conflicting_desc = [{"desc": descsum_create("pkh(" + xpriv + "/1h/*h)"),
             "timestamp": 0, "range": [0, 10000]}]
             num_relevant_blocks = 1000
-            self.generatetoaddress(self.nodes[0], num_relevant_blocks, self.nodes[0].deriveaddresses(slow_desc[0]['desc'], [0, 0])[0])
-            self.generatetoaddress(self.nodes[0], num_relevant_blocks, self.nodes[0].deriveaddresses(conflicting_desc[0]['desc'], [0, 0])[0])
+            self.generate_with_mocktime(self.nodes[0], num_relevant_blocks, address=self.nodes[0].deriveaddresses(slow_desc[0]['desc'], [0, 0])[0])
+            self.generate_with_mocktime(self.nodes[0], num_relevant_blocks, address=self.nodes[0].deriveaddresses(conflicting_desc[0]['desc'], [0, 0])[0])
 
             start = threading.Barrier(3)
 

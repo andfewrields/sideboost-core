@@ -675,6 +675,33 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         sync_fun() if sync_fun else self.sync_all()
         return blocks
 
+    def generate_with_mocktime(self, generator, nblocks, *, address=None, sync_fun=None):
+        """Mine nblocks (to address, if given) in chunks, moving every running
+        node's mock clock up to the tip's time in between.
+
+        SideBoost: each block's timestamp must be later than the median of the
+        previous 11, so a fast burst of mining runs ahead of the clock (about
+        1 s per 6 blocks); after ~1800 blocks the 5-minute future-timestamp
+        limit would reject further blocks.  On a real 10 s chain the clock
+        keeps up with the blocks.  Chunks are small so that clock steps
+        (~2 s each) stay well below the 10 s block download timeout, even
+        when a peer's download spans several steps."""
+        node = generator if isinstance(generator, TestNode) else generator._test_node
+        blocks = []
+        while nblocks > 0:
+            chunk = min(nblocks, 12)
+            if address is None:
+                blocks += self.generate(generator, chunk, sync_fun=self.no_op)
+            else:
+                blocks += self.generatetoaddress(generator, chunk, address, sync_fun=self.no_op)
+            nblocks -= chunk
+            tip_time = node.getblockheader(node.getbestblockhash())["time"]
+            for other in self.nodes:
+                if other.running and (other.mocktime or 0) < tip_time:
+                    other.setmocktime(tip_time)
+        sync_fun() if sync_fun else self.sync_all()
+        return blocks
+
     def generatetodescriptor(self, generator, *args, sync_fun=None, **kwargs):
         blocks = generator.generatetodescriptor(*args, called_by_framework=True, **kwargs)
         sync_fun() if sync_fun else self.sync_all()

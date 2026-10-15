@@ -7,6 +7,7 @@ from copy import deepcopy
 from decimal import Decimal
 from math import ceil
 
+from test_framework.blocktools import MAX_STANDARD_TX_WEIGHT
 from test_framework.messages import (
     COutPoint,
     CTransaction,
@@ -165,12 +166,15 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         self.log.info("Test a overly-large sigops-vbyte hits package limits")
         # Make a 2-transaction package which fails vbyte checks even though
         # separately they would work.
-        self.restart_node(0, extra_args=["-bytespersigop=5000","-permitbaremultisig=1"])
+        # SideBoost: 500 bytes per sigop (Bitcoin: 5000), so the parent alone
+        # (10,000 vB) fits in the cluster size limit and both don't.
+        self.restart_node(0, extra_args=["-bytespersigop=500","-permitbaremultisig=1"])
 
         def create_bare_multisig_tx(utxo_to_spend=None):
             _, pubkey = generate_keypair()
             amount_for_bare = 50000
-            tx_dict = self.wallet.create_self_transfer(fee=Decimal("3"), utxo_to_spend=utxo_to_spend)
+            # SideBoost: fee scaled with the vsize (Bitcoin: 3)
+            tx_dict = self.wallet.create_self_transfer(fee=Decimal("0.3"), utxo_to_spend=utxo_to_spend)
             tx_utxo = tx_dict["new_utxo"]
             tx = tx_dict["tx"]
             tx.vout.append(CTxOut(amount_for_bare, keys_to_multisig_script([pubkey], k=1)))
@@ -185,7 +189,7 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         # Separately, the parent tx is ok
         parent_individual_testres = self.nodes[0].testmempoolaccept([tx_parent.serialize().hex()])[0]
         assert parent_individual_testres["allowed"]
-        max_multisig_vsize = MAX_PUBKEYS_PER_MULTISIG * 5000
+        max_multisig_vsize = MAX_PUBKEYS_PER_MULTISIG * 500
         assert_equal(parent_individual_testres["vsize_adjusted"], max_multisig_vsize)
 
         # But together, it's exceeding limits in the *package* context. If sigops adjusted vsize wasn't being checked
@@ -251,12 +255,20 @@ class BytesPerSigOpTest(BitcoinTestFramework):
                 self.restart_node(0, extra_args=[bytespersigop_parameter])
 
             for num_sigops in (69, 101, 142, 183, 222):
+                # SideBoost: skip combinations whose sigop-equivalent size can't
+                # be a standard transaction (max ~14,666 vbytes vs Bitcoin's 100,000)
+                if ceil(num_sigops * bytes_per_sigop / WITNESS_SCALE_FACTOR) > MAX_STANDARD_TX_WEIGHT // WITNESS_SCALE_FACTOR:
+                    continue
                 self.test_sigops_limit(bytes_per_sigop, num_sigops)
 
             self.generate(self.wallet, 1)
 
         self.test_sigops_package()
-        self.test_legacy_sigops_stdness()
+        # SideBoost: test_legacy_sigops_stdness can't apply. BIP54's limit of
+        # 2,500 legacy sigops per transaction is far above SideBoost's block
+        # limit (1,332 sigops cost = 333 legacy sigops) and max standard tx
+        # sigops cost (931), so such a transaction is rejected long before it,
+        # and could never be mined.
 
 
 if __name__ == '__main__':

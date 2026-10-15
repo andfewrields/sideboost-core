@@ -29,7 +29,10 @@ def check_package_limits(func):
             assert "too-large-cluster" in txres["package-error"]
 
         # Clear mempool and check that the package passes now
+        # (SideBoost: blocks are small, so it may take several)
         self.generate(node, 1)
+        while node.getrawmempool():
+            self.generate(node, 1)
         assert all([res["allowed"] for res in node.testmempoolaccept(rawtxs=package_hex)])
 
     return func_wrapper
@@ -161,25 +164,28 @@ class MempoolPackageLimitsTest(BitcoinTestFramework):
 
     @check_package_limits
     def test_desc_size_limits(self):
-        """Create 3 mempool transactions and 2 package transactions (21KvB each):
-              Ma
-             ^ ^
-            Mb  Mc
-           ^     ^
-          Pd      Pe
+        """Create 5 mempool transactions and 4 package transactions (each 1/7 of the cluster size limit):
+                  Ma
+             ^   ^   ^   ^
+            Mb  Mc  Md  Me
+            ^   ^   ^   ^
+            Pf  Pg  Ph  Pi
         The top ancestor in the package exceeds descendant size limits but only if the in-mempool
         and in-package descendants are all considered together.
+        (SideBoost: four legs sized from the cluster size limit, instead of two
+        legs of 21KvB, as SideBoost caps clusters at what fits in a block.)
         """
         node = self.nodes[0]
-        target_vsize = 21_000
+        target_vsize = node.getmempoolinfo()["limitclustersize"] // 7
+        num_legs = 4
         high_fee = 10 * target_vsize  # 10 sats/vB
         self.log.info("Check that in-mempool and in-package descendant sizes are calculated properly in packages")
         # Top parent in mempool, Ma
-        ma_tx = self.wallet.create_self_transfer_multi(num_outputs=2, fee_per_output=high_fee // 2, target_vsize=target_vsize)
+        ma_tx = self.wallet.create_self_transfer_multi(num_outputs=num_legs, fee_per_output=high_fee // num_legs, target_vsize=target_vsize)
         self.wallet.sendrawtransaction(from_node=node, tx_hex=ma_tx["hex"])
 
         package_hex = []
-        for j in range(2): # Two legs (left and right)
+        for j in range(num_legs):
             # Mempool transaction (Mb and Mc)
             mempool_tx = self.wallet.create_self_transfer(utxo_to_spend=ma_tx["new_utxos"][j], target_vsize=target_vsize)
             self.wallet.sendrawtransaction(from_node=node, tx_hex=mempool_tx["hex"])
@@ -188,8 +194,8 @@ class MempoolPackageLimitsTest(BitcoinTestFramework):
             package_tx = self.wallet.create_self_transfer(utxo_to_spend=mempool_tx["new_utxo"], target_vsize=target_vsize)
             package_hex.append(package_tx["hex"])
 
-        assert_equal(3, node.getmempoolinfo()["size"])
-        assert_equal(2, len(package_hex))
+        assert_equal(1 + num_legs, node.getmempoolinfo()["size"])
+        assert_equal(num_legs, len(package_hex))
         return package_hex
 
 

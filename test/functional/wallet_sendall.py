@@ -6,6 +6,7 @@
 
 from decimal import Decimal, getcontext
 
+from test_framework.blocktools import MAX_STANDARD_TX_WEIGHT
 from test_framework.messages import SEQUENCE_FINAL
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -458,11 +459,15 @@ class SendallTest(BitcoinTestFramework):
     def sendall_fails_with_transaction_too_large(self):
         self.log.info("Test that sendall fails if resulting transaction is too large")
 
+        # SideBoost: enough inputs to exceed the max standard tx weight
+        # (Bitcoin: 1600)
+        num_inputs = MAX_STANDARD_TX_WEIGHT // 250
+
         # Force the wallet to bulk-generate the addresses we'll need
-        self.wallet.keypoolrefill(1600)
+        self.wallet.keypoolrefill(num_inputs)
 
         # create many inputs
-        outputs = {self.wallet.getnewaddress(): 0.000025 for _ in range(1600)}
+        outputs = {self.wallet.getnewaddress(): 0.000025 for _ in range(num_inputs)}
         self.def_wallet.sendmany(amounts=outputs)
         self.generate(self.nodes[0], 1)
 

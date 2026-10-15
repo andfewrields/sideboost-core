@@ -16,6 +16,7 @@ import time
 
 from test_framework.messages import (
     CInv,
+    MAX_BLOCK_WEIGHT,
     MSG_BLOCK,
     msg_getdata,
     msg_mempool,
@@ -29,7 +30,13 @@ from test_framework.util import (
 from test_framework.wallet import MiniWallet
 
 
-UPLOAD_TARGET_MB = 800
+# SideBoost: the node reserves enough of the target to relay a day's blocks
+# (8,640 blocks of up to 66,668 bytes, as Bitcoin's 144 of 4 MB), but this test's
+# blocks are only ~14 KB, too small to use up such a target. So the test moves
+# the clock to near the end of each 24-hour cycle, which shrinks the reserve to
+# CYCLE_TIME_LEFT's blocks, and uses a smaller target (Bitcoin: 800 MB).
+UPLOAD_TARGET_MB = 8
+CYCLE_TIME_LEFT = 1000
 
 
 class TestP2PConn(P2PInterface):
@@ -60,7 +67,9 @@ class MaxUploadTest(BitcoinTestFramework):
 
     def run_test(self):
         # Initially, neither historical blocks serving limit nor total limit are reached
-        self.assert_uploadtarget_state(target_reached=False, serve_historical_blocks=True)
+        # (SideBoost: but a full day's reserve exceeds this test's target, so
+        # historical blocks are only served near the end of a cycle)
+        self.assert_uploadtarget_state(target_reached=False, serve_historical_blocks=False)
 
         # Before we connect anything, we first set the time on the node
         # to be in the past, otherwise things break because the CNode
@@ -97,7 +106,14 @@ class MaxUploadTest(BitcoinTestFramework):
 
         # We'll be requesting this new block too
         big_new_block = self.nodes[0].getbestblockhash()
+        new_block_size = self.nodes[0].getblock(big_new_block, True)['size']
         big_new_block = int(big_new_block, 16)
+
+        # SideBoost: start a new cycle (sending something), then move near its end
+        cycle_start = self.nodes[0].mocktime
+        for p2p_conn in p2p_conns:
+            p2p_conn.sync_with_ping()
+        self.nodes[0].setmocktime(cycle_start + 24*60*60 - CYCLE_TIME_LEFT)
 
         # p2p_conns[0] will test what happens if we just keep requesting the
         # the same big old block too many times (expect: disconnect)
@@ -106,12 +122,12 @@ class MaxUploadTest(BitcoinTestFramework):
         getdata_request.inv.append(CInv(MSG_BLOCK, big_old_block))
 
         max_bytes_per_day = UPLOAD_TARGET_MB * 1024 *1024
-        daily_buffer = 144 * 4000000
+        daily_buffer = CYCLE_TIME_LEFT // 10 * MAX_BLOCK_WEIGHT  # SideBoost: Bitcoin's is 144 * 4000000
         max_bytes_available = max_bytes_per_day - daily_buffer
         success_count = max_bytes_available // old_block_size
 
-        # 576MB will be reserved for relaying new blocks, so expect this to
-        # succeed for ~235 tries.
+        # 6.7MB will be reserved for relaying new blocks, so expect this to
+        # succeed for ~120 tries.
         for i in range(success_count):
             p2p_conns[0].send_and_ping(getdata_request)
             assert_equal(p2p_conns[0].block_receive_map[big_old_block], i+1)
@@ -157,6 +173,8 @@ class MaxUploadTest(BitcoinTestFramework):
         # and p2p_conns[2] should be able to retrieve the old block.
         self.nodes[0].setmocktime(int(time.time()))
         p2p_conns[2].sync_with_ping()
+        # SideBoost: move near the end of the new cycle, as above
+        self.nodes[0].setmocktime(int(time.time()) + 24*60*60 - CYCLE_TIME_LEFT)
         p2p_conns[2].send_and_ping(getdata_request)
         assert_equal(p2p_conns[2].block_receive_map[big_old_block], 1)
         self.assert_uploadtarget_state(target_reached=False, serve_historical_blocks=True)
@@ -176,9 +194,9 @@ class MaxUploadTest(BitcoinTestFramework):
         # Sending mempool message shouldn't disconnect peer, as total limit isn't reached yet
         peer.send_and_ping(msg_mempool())
 
-        #retrieve 20 blocks which should be enough to break the 1MB limit
+        #retrieve enough blocks to break the 1MB limit (SideBoost: Bitcoin retrieves 20)
         getdata_request.inv = [CInv(MSG_BLOCK, big_new_block)]
-        for i in range(20):
+        for i in range(1024 * 1024 // new_block_size + 1):
             peer.send_and_ping(getdata_request)
             assert_equal(peer.block_receive_map[big_new_block], i+1)
 

@@ -7,6 +7,7 @@ import random
 
 from .blocktools import (
     COINBASE_MATURITY,
+    MAX_STANDARD_TX_WEIGHT,
 )
 from .messages import (
     COutPoint,
@@ -70,10 +71,12 @@ def fill_mempool(test_framework, node, *, tx_sync_fun=None):
     minrelayfee = node.getnetworkinfo()['relayfee']
 
     tx_batch_size = 1
-    num_of_batches = 75
+    # SideBoost: transactions must fit in a block, so they are ~14k vbytes
+    # instead of ~65k, and it takes more of them to fill the mempool.
+    num_of_batches = 330
     # Generate UTXOs to flood the mempool
     # 1 to create a tx initially that will be evicted from the mempool later
-    # 75 transactions each with a fee rate higher than the previous one
+    # num_of_batches transactions each with a fee rate higher than the previous one
     ephemeral_miniwallet = MiniWallet(node, tag_name="fill_mempool_ephemeral_wallet")
     test_framework.generate(ephemeral_miniwallet, 1 + num_of_batches * tx_batch_size)
 
@@ -95,9 +98,9 @@ def fill_mempool(test_framework, node, *, tx_sync_fun=None):
         del confirmed_utxos[:tx_batch_size]
 
     # Increase the tx fee rate to give the subsequent transactions a higher priority in the mempool
-    # The tx has an approx. vsize of 65k, i.e. multiplying the previous fee rate (in sats/kvB)
-    # by 130 should result in a fee that corresponds to 2x of that fee rate
-    base_fee = minrelayfee * 130
+    # The tx has an approx. vsize of 14k, i.e. multiplying the previous fee rate (in sats/kvB)
+    # by 28 should result in a fee that corresponds to 2x of that fee rate
+    base_fee = minrelayfee * 28
     batch_fees = [(i + 1) * base_fee for i in range(num_of_batches)]
 
     test_framework.log.debug("Fill up the mempool with txs with higher fee rate")
@@ -130,6 +133,7 @@ def create_large_orphan():
     # Nonexistent UTXO
     tx.vin = [CTxIn(COutPoint(random.randrange(1 << 256), random.randrange(1, 100)))]
     tx.wit.vtxinwit = [CTxInWitness()]
-    tx.wit.vtxinwit[0].scriptWitness.stack = [CScript(b'X' * 390000)]
+    # Just under the max standard tx weight (SideBoost: 58,664 rather than 400,000)
+    tx.wit.vtxinwit[0].scriptWitness.stack = [CScript(b'X' * (MAX_STANDARD_TX_WEIGHT - 1000))]
     tx.vout = [CTxOut(100, CScript([OP_RETURN, b'a' * 20]))]
     return tx

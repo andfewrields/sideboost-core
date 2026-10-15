@@ -213,7 +213,9 @@ class ReplaceByFeeTest(BitcoinTestFramework):
 
         fee = int(0.00001 * COIN)
         n = DEFAULT_CLUSTER_LIMIT
-        tree_txs = list(branch(tx0_outpoint, initial_nValue, n, fee=fee))
+        # SideBoost: 2 outputs per tx (Bitcoin: 5), so the tree fits in the
+        # cluster size limit (a block's capacity)
+        tree_txs = list(branch(tx0_outpoint, initial_nValue, n, tree_width=2, fee=fee))
         assert_equal(len(tree_txs), n)
 
         # Attempt double-spend, will fail because too little fee paid

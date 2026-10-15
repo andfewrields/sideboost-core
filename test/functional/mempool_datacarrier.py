@@ -3,6 +3,7 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test datacarrier functionality"""
+from test_framework.blocktools import MAX_STANDARD_TX_WEIGHT
 from test_framework.messages import (
     CTxOut,
     MAX_OP_RETURN_RELAY,
@@ -65,7 +66,8 @@ class DataCarrierTest(BitcoinTestFramework):
         # only 80 bytes are used for data (+1 for OP_RETURN, +2 for the pushdata opcodes).
         custom_size_data = randbytes(CUSTOM_DATACARRIER_ARG - 3)
         too_long_data = randbytes(CUSTOM_DATACARRIER_ARG - 2)
-        extremely_long_data = randbytes(MAX_OP_RETURN_RELAY - 200)
+        # SideBoost: limited by the max standard tx size, not MAX_OP_RETURN_RELAY
+        extremely_long_data = randbytes(MAX_STANDARD_TX_WEIGHT // 4 - 200)
         one_byte = randbytes(1)
         zero_bytes = randbytes(0)
 

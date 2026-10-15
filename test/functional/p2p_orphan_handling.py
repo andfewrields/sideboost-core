@@ -52,8 +52,10 @@ def cleanup(func):
     def wrapper(self):
         func(self)
 
-        # Clear mempool
+        # Clear mempool (SideBoost: blocks are small, so it may take several)
         self.generate(self.nodes[0], 1)
+        while self.nodes[0].getrawmempool():
+            self.generate(self.nodes[0], 1)
         self.nodes[0].disconnect_p2ps()
         # Check that mempool and orphanage have been cleared
         self.wait_until(lambda: len(self.nodes[0].getorphantxs()) == 0)
@@ -675,10 +677,13 @@ class OrphanHandlingTest(BitcoinTestFramework):
         self.wait_until(lambda: len(node.getorphantxs()) == num_individual_dosers)
 
         # Now honest peer will send a maximally sized ancestor package of 24 orphans chaining
-        # off of a single missing transaction, with a total vsize 404,000Wu
+        # off of a single missing transaction, filling the per-peer orphanage
+        # reservation (SideBoost: as large as a cluster may be, the max standard
+        # tx size, which is within the reservation of max standard tx weight +
+        # 4,000 WU; on Bitcoin both are 404,000 WU)
         ancestor_package = self.wallet.create_self_transfer_chain(chain_length=DEFAULT_ANCESTOR_LIMIT - 1)
         sum_ancestor_package_vsize = sum([tx["tx"].get_vsize() for tx in ancestor_package])
-        final_tx = self.wallet.create_self_transfer(utxo_to_spend=ancestor_package[-1]["new_utxo"], target_vsize=101000 - sum_ancestor_package_vsize)
+        final_tx = self.wallet.create_self_transfer(utxo_to_spend=ancestor_package[-1]["new_utxo"], target_vsize=MAX_STANDARD_TX_WEIGHT // 4 - sum_ancestor_package_vsize)
         ancestor_package.append(final_tx)
 
         # Peer sends all but first tx to fill up orphange with their orphans

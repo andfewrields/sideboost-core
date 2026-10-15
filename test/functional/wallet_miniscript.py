@@ -4,6 +4,7 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test Miniscript descriptors integration in the wallet."""
 
+from test_framework.blocktools import MAX_STANDARD_TX_WEIGHT
 from test_framework.descriptors import descsum_create
 from test_framework.psbt import PSBT, PSBT_IN_SHA256
 from test_framework.test_framework import BitcoinTestFramework
@@ -249,7 +250,7 @@ class WalletMiniscriptTest(BitcoinTestFramework):
         assert_equal(utxo["solvable"], True)
 
     def signing_test(
-        self, desc, sequence, locktime, sigs_count, stack_size, sha256_preimages
+        self, desc, sequence, locktime, sigs_count, stack_size, sha256_preimages, broadcast=True
     ):
         self.log.info(f"Importing private Miniscript descriptor '{desc}'")
         is_taproot = desc.startswith("tr(")
@@ -310,6 +311,8 @@ class WalletMiniscriptTest(BitcoinTestFramework):
         if stack_size is not None:
             txin = self.nodes[0].decoderawtransaction(res["hex"])["vin"][0]
             assert len(txin["txinwitness"]) == stack_size, txin["txinwitness"]
+            if not broadcast:
+                return
             self.log.info("Broadcasting the transaction.")
             # If necessary, satisfy a relative timelock
             if sequence is not None:
@@ -383,7 +386,12 @@ class WalletMiniscriptTest(BitcoinTestFramework):
         ms = f"pk({TPRVS[0]}/*)"
         ms = "n" * padding + ":" + ms
         desc = f"tr({PUBKEYS[0]},{ms})"
-        self.signing_test(desc, None, None, 1, 3, None)
+        # SideBoost: Miniscript's maximum is based on Bitcoin's max standard tx
+        # weight, so a spend of it is too large to broadcast here. Broadcast a
+        # spend of a script that fits SideBoost's max standard tx weight instead.
+        self.signing_test(desc, None, None, 1, 3, None, broadcast=False)
+        fitting_ms = "n" * (MAX_STANDARD_TX_WEIGHT - 3000) + f":pk({TPRVS[0]}/*)"
+        self.signing_test(f"tr({PUBKEYS[0]},{fitting_ms})", None, None, 1, 3, None)
         # This was really the maximum size, one more byte and we can't import it.
         ms = "n" + ms
         desc = f"tr({PUBKEYS[0]},{ms})"

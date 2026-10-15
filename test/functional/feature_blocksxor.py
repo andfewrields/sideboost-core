@@ -30,7 +30,7 @@ class BlocksXORTest(BitcoinTestFramework):
         node = self.nodes[0]
         wallet = MiniWallet(node)
         for _ in range(5):
-            wallet.send_self_transfer(from_node=node, target_vsize=20000)
+            wallet.send_self_transfer(from_node=node, target_vsize=14000)  # SideBoost: Bitcoin uses 20000
             self.generate(wallet, 1)
 
         block_files = list(node.blocks_path.glob('blk[0-9][0-9][0-9][0-9][0-9].dat'))

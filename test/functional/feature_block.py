@@ -122,13 +122,14 @@ class FullBlockTest(BitcoinTestFramework):
         min_invalid_script = CScript([b'\x01' * MAX_SCRIPT_ELEMENT_SIZE] * 19 + [b'\x01' * 63])
         assert_equal(len(min_invalid_script), MAX_SCRIPT_SIZE + 1)
 
-        b0 = self.next_block(0, additional_output_scripts=[max_valid_script, min_invalid_script])
+        # SideBoost: one script per block, as both don't fit in one
+        # (min_invalid_script goes in the first maturity buffer block).
+        b0 = self.next_block(0, additional_output_scripts=[max_valid_script])
         self.save_spendable_output()
         self.send_blocks([b0])
 
         # Will test spending once possibly-mature
         max_size_spendable_output = CTxIn(COutPoint(b0.vtx[0].txid_int, 1))
-        min_size_unspendable_output = CTxIn(COutPoint(b0.vtx[0].txid_int, 2))
 
         # These constants chosen specifically to trigger an immature coinbase spend
         # at a certain time below.
@@ -138,9 +139,10 @@ class FullBlockTest(BitcoinTestFramework):
         # Allow the block to mature
         blocks = []
         for i in range(NUM_BUFFER_BLOCKS_TO_GENERATE):
-            blocks.append(self.next_block(f"maturitybuffer.{i}"))
+            blocks.append(self.next_block(f"maturitybuffer.{i}", additional_output_scripts=[] if i else [min_invalid_script]))
             self.save_spendable_output()
         self.send_blocks(blocks)
+        min_size_unspendable_output = CTxIn(COutPoint(blocks[0].vtx[0].txid_int, 1))
 
         # MAX_SCRIPT_SIZE testing now that coins are mature
         tx = CTransaction()
@@ -352,7 +354,9 @@ class FullBlockTest(BitcoinTestFramework):
         self.move_tip(15)
         b23 = self.next_block(23, spend=out[6])
         tx = CTransaction()
-        script_length = (MAX_BLOCK_WEIGHT - b23.get_weight() - 276) // 4
+        # SideBoost: 260 (Bitcoin: 276), as the ~16 KB script's push opcode and
+        # length prefix are 4 bytes shorter than those of a ~1 MB one.
+        script_length = (MAX_BLOCK_WEIGHT - b23.get_weight() - 260) // 4
         script_output = CScript([b'\x00' * script_length])
         tx.vout.append(CTxOut(0, script_output))
         tx.vin.append(CTxIn(COutPoint(b23.vtx[1].txid_int, 0)))
@@ -365,7 +369,7 @@ class FullBlockTest(BitcoinTestFramework):
         self.log.info("Reject a block of weight MAX_BLOCK_WEIGHT + 4")
         self.move_tip(15)
         b24 = self.next_block(24, spend=out[6])
-        script_length = (MAX_BLOCK_WEIGHT - b24.get_weight() - 276) // 4
+        script_length = (MAX_BLOCK_WEIGHT - b24.get_weight() - 260) // 4
         script_output = CScript([b'\x00' * (script_length + 1)])
         tx.vout = [CTxOut(0, script_output)]
         b24 = self.update_block(24, [tx])
@@ -422,8 +426,9 @@ class FullBlockTest(BitcoinTestFramework):
         #
 
         # MULTISIG: each op code counts as 20 sigops.  To create the edge case, pack another 19 sigops at the end.
+        # (SideBoost: the remaining sigops, as MAX_BLOCK_SIGOPS isn't a multiple of 20)
         self.log.info("Accept a block with the max number of OP_CHECKMULTISIG sigops")
-        lots_of_multisigs = CScript([OP_CHECKMULTISIG] * ((MAX_BLOCK_SIGOPS - 1) // 20) + [OP_CHECKSIG] * 19)
+        lots_of_multisigs = CScript([OP_CHECKMULTISIG] * ((MAX_BLOCK_SIGOPS - 1) // 20) + [OP_CHECKSIG] * ((MAX_BLOCK_SIGOPS - 1) % 20))
         b31 = self.next_block(31, spend=out[8], script=lots_of_multisigs)
         assert_equal(get_legacy_sigopcount_block(b31), MAX_BLOCK_SIGOPS)
         self.send_blocks([b31], True)
@@ -431,7 +436,7 @@ class FullBlockTest(BitcoinTestFramework):
 
         # this goes over the limit because the coinbase has one sigop
         self.log.info("Reject a block with too many OP_CHECKMULTISIG sigops")
-        too_many_multisigs = CScript([OP_CHECKMULTISIG] * (MAX_BLOCK_SIGOPS // 20))
+        too_many_multisigs = CScript([OP_CHECKMULTISIG] * (MAX_BLOCK_SIGOPS // 20) + [OP_CHECKSIG] * (MAX_BLOCK_SIGOPS % 20))
         b32 = self.next_block(32, spend=out[9], script=too_many_multisigs)
         assert_equal(get_legacy_sigopcount_block(b32), MAX_BLOCK_SIGOPS + 1)
         self.send_blocks([b32], success=False, reject_reason='bad-blk-sigops', reconnect=True)
@@ -439,13 +444,13 @@ class FullBlockTest(BitcoinTestFramework):
         # CHECKMULTISIGVERIFY
         self.log.info("Accept a block with the max number of OP_CHECKMULTISIGVERIFY sigops")
         self.move_tip(31)
-        lots_of_multisigs = CScript([OP_CHECKMULTISIGVERIFY] * ((MAX_BLOCK_SIGOPS - 1) // 20) + [OP_CHECKSIG] * 19)
+        lots_of_multisigs = CScript([OP_CHECKMULTISIGVERIFY] * ((MAX_BLOCK_SIGOPS - 1) // 20) + [OP_CHECKSIG] * ((MAX_BLOCK_SIGOPS - 1) % 20))
         b33 = self.next_block(33, spend=out[9], script=lots_of_multisigs)
         self.send_blocks([b33], True)
         self.save_spendable_output()
 
         self.log.info("Reject a block with too many OP_CHECKMULTISIGVERIFY sigops")
-        too_many_multisigs = CScript([OP_CHECKMULTISIGVERIFY] * (MAX_BLOCK_SIGOPS // 20))
+        too_many_multisigs = CScript([OP_CHECKMULTISIGVERIFY] * (MAX_BLOCK_SIGOPS // 20) + [OP_CHECKSIG] * (MAX_BLOCK_SIGOPS % 20))
         b34 = self.next_block(34, spend=out[10], script=too_many_multisigs)
         self.send_blocks([b34], success=False, reject_reason='bad-blk-sigops', reconnect=True)
 
@@ -624,7 +629,7 @@ class FullBlockTest(BitcoinTestFramework):
             b47.nNonce += 1
         self.send_blocks([b47], False, force_send=True, reject_reason='high-hash', reconnect=True)
 
-        self.log.info("Reject a block with a timestamp >2 hours in the future")
+        self.log.info("Reject a block with a timestamp too far in the future")
         self.move_tip(44)
         b48 = self.next_block(48)
         b48.nTime = int(time.time()) + 60 * 60 * 3
@@ -690,13 +695,16 @@ class FullBlockTest(BitcoinTestFramework):
         #                                                                                   \-> b54 (15)
         #                                                                        -> b44 (14)\-> b48 () -> b48p ()
         self.log.info("Accept a previously rejected future block at a later time")
-        node.setmocktime(int(time.time()) + 2*60*60)
+        # SideBoost: move the clock to b48's time (Bitcoin: 2 hours ahead, within
+        # its limit of b48), then back.
+        clock = node.mocktime
+        node.setmocktime(b48.nTime)
         self.move_tip(48)
         self.block_heights[b48.hash_int] = self.block_heights[b44.hash_int] + 1 # b48 is a parent of b44
         b48p = self.next_block("48p")
         self.send_blocks([b48, b48p], success=True) # Reorg to the longer chain
         node.invalidateblock(b48p.hash_hex) # mark b48p as invalid
-        node.setmocktime(0)
+        node.setmocktime(clock)
 
         # Test Merkle tree malleability
         #
@@ -862,7 +870,7 @@ class FullBlockTest(BitcoinTestFramework):
         tx = CTransaction()
 
         # use canonical serialization to calculate size
-        script_length = (MAX_BLOCK_WEIGHT - 4 * len(b64a.normal_serialize()) - 276) // 4
+        script_length = (MAX_BLOCK_WEIGHT - 4 * len(b64a.normal_serialize()) - 260) // 4  # SideBoost: see b23
         script_output = CScript([b'\x00' * script_length])
         tx.vout.append(CTxOut(0, script_output))
         tx.vin.append(CTxIn(COutPoint(b64a.vtx[1].txid_int, 0)))
@@ -1221,7 +1229,7 @@ class FullBlockTest(BitcoinTestFramework):
             for i in range(89, LARGE_REORG_SIZE + 89):
                 b = self.next_block(i, spend)
                 tx = CTransaction()
-                script_length = (MAX_BLOCK_WEIGHT - b.get_weight() - 276) // 4
+                script_length = (MAX_BLOCK_WEIGHT - b.get_weight() - 260) // 4  # SideBoost: see b23
                 script_output = CScript([b'\x00' * script_length])
                 tx.vout.append(CTxOut(0, script_output))
                 tx.vin.append(CTxIn(COutPoint(b.vtx[1].txid_int, 0)))
@@ -1291,6 +1299,10 @@ class FullBlockTest(BitcoinTestFramework):
         else:
             base_block_hash = self.tip.hash_int
             block_time = self.tip.nTime + 1
+        # SideBoost: blocks are dated 1 s apart, so keep the clock within the
+        # 5-minute future-timestamp limit of them (Bitcoin's 2 hours cover all).
+        if (self.nodes[0].mocktime or 0) < block_time:
+            self.nodes[0].setmocktime(block_time)
         # First create the coinbase
         height = self.block_heights[base_block_hash] + 1
         coinbase = create_coinbase(height, self.coinbase_pubkey)

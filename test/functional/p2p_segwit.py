@@ -21,6 +21,7 @@ from test_framework.messages import (
     CTxInWitness,
     CTxOut,
     CTxWitness,
+    MAX_BLOCK_SIGOPS_COST,
     MAX_BLOCK_WEIGHT,
     MSG_BLOCK,
     MSG_TX,
@@ -92,7 +93,7 @@ from test_framework.wallet import MiniWallet
 from test_framework.wallet_util import generate_keypair
 
 
-MAX_SIGOP_COST = 80000
+MAX_SIGOP_COST = MAX_BLOCK_SIGOPS_COST
 
 SEGWIT_HEIGHT = 120
 
@@ -847,7 +848,7 @@ class SegWitTest(BitcoinTestFramework):
         # Append extra witness data to the coinbase input that triggers the
         # same validation rejection but keeps the block under the weight limit
         # so it can be sent via P2P.
-        relayable_block.vtx[0].wit.vtxinwit[0].scriptWitness.stack.append(b'a' * 100_000)
+        relayable_block.vtx[0].wit.vtxinwit[0].scriptWitness.stack.append(b'a' * 10_000)  # SideBoost: Bitcoin uses 100,000
 
         # Ensure it's relayable by weight
         assert_greater_than_or_equal(MAX_BLOCK_WEIGHT, relayable_block.get_weight())
@@ -898,8 +899,9 @@ class SegWitTest(BitcoinTestFramework):
         # The witness script will be a bunch of OP_2DROP's, followed by OP_TRUE.
         # This should give us plenty of room to tweak the spending tx's
         # virtual size.
-        NUM_DROPS = 200  # 201 max ops per script!
-        NUM_OUTPUTS = 50
+        # SideBoost: sized for 66,668 WU blocks (Bitcoin: 200 drops, 50 outputs).
+        NUM_DROPS = 75  # 201 max ops per script!
+        NUM_OUTPUTS = 2
 
         witness_script = CScript([OP_2DROP] * NUM_DROPS + [OP_TRUE])
         script_pubkey = script_to_p2wsh_script(witness_script)
@@ -937,9 +939,8 @@ class SegWitTest(BitcoinTestFramework):
         add_witness_commitment(block)
         block.solve()
         assert_equal(block.get_weight(), MAX_BLOCK_WEIGHT + 1)
-        # Make sure that our test case would exceed the old max-network-message
-        # limit
-        assert len(block.serialize()) > 2 * 1024 * 1024
+        # SideBoost: Bitcoin also checks that the block exceeds the old 2 MiB
+        # network message limit, which a SideBoost block can't.
 
         test_witness_block(self.nodes[0], self.test_node, block, accepted=False, reason='bad-blk-weight')
 
@@ -1597,15 +1598,16 @@ class SegWitTest(BitcoinTestFramework):
         # Ensure that we've tested a situation where we use SIGHASH_SINGLE with
         # an input index > number of outputs.
         NUM_SIGHASH_TESTS = 500
+        NUM_SPLIT_OUTPUTS = 200  # SideBoost: Bitcoin splits into 500, too large for a block
         temp_utxos = []
         tx = CTransaction()
         tx.vin.append(CTxIn(COutPoint(prev_utxo.sha256, prev_utxo.n), b""))
-        split_value = prev_utxo.nValue // NUM_SIGHASH_TESTS
-        for _ in range(NUM_SIGHASH_TESTS):
+        split_value = prev_utxo.nValue // NUM_SPLIT_OUTPUTS
+        for _ in range(NUM_SPLIT_OUTPUTS):
             tx.vout.append(CTxOut(split_value, script_pubkey))
         tx.wit.vtxinwit.append(CTxInWitness())
         sign_p2pk_witness_input(witness_script, tx, 0, SIGHASH_ALL, prev_utxo.nValue, key)
-        for i in range(NUM_SIGHASH_TESTS):
+        for i in range(NUM_SPLIT_OUTPUTS):
             temp_utxos.append(UTXO(tx.txid_int, i, split_value))
 
         block = self.build_next_block()
@@ -1649,7 +1651,8 @@ class SegWitTest(BitcoinTestFramework):
             block.vtx.append(tx)
 
             # Test the block periodically, if we're close to maxblocksize
-            if block.get_weight() > MAX_BLOCK_WEIGHT - 4000:
+            # (SideBoost: Bitcoin leaves 4000 WU, less than the largest tx here)
+            if block.get_weight() > MAX_BLOCK_WEIGHT - 8000:
                 self.update_witness_block_with_transactions(block, [])
                 test_witness_block(self.nodes[0], self.test_node, block, accepted=True)
                 block = self.build_next_block()
@@ -1695,6 +1698,21 @@ class SegWitTest(BitcoinTestFramework):
         test_witness_block(self.nodes[0], self.test_node, block, accepted=True)
 
         temp_utxos.pop(0)
+
+        # SideBoost: consolidate in chunks first, as a transaction spending all
+        # of temp_utxos doesn't fit in a block.
+        while len(temp_utxos) > 150:
+            chunk, temp_utxos = temp_utxos[:150], temp_utxos[150:]
+            tx = CTransaction()
+            tx.vout = [CTxOut(sum(i.nValue for i in chunk), script_pubkey)]
+            for index, i in enumerate(chunk):
+                tx.vin.append(CTxIn(COutPoint(i.sha256, i.n), b""))
+                tx.wit.vtxinwit.append(CTxInWitness())
+                sign_p2pk_witness_input(witness_script, tx, index, SIGHASH_ALL | SIGHASH_ANYONECANPAY, i.nValue, key)
+            block = self.build_next_block()
+            self.update_witness_block_with_transactions(block, [tx])
+            test_witness_block(self.nodes[0], self.test_node, block, accepted=True)
+            temp_utxos.append(UTXO(tx.txid_int, 0, tx.vout[0].nValue))
 
         # Update self.utxos for later tests by creating two outputs
         # that consolidate all the coins in temp_utxos.
@@ -1866,10 +1884,12 @@ class SegWitTest(BitcoinTestFramework):
         """Test sigop counting is correct inside witnesses."""
 
         # Keep this under MAX_OPS_PER_SCRIPT (201)
-        witness_script = CScript([OP_TRUE, OP_IF, OP_TRUE, OP_ELSE] + [OP_CHECKMULTISIG] * 5 + [OP_CHECKSIG] * 193 + [OP_ENDIF])
+        # SideBoost: 166 checksigs (Bitcoin: 193), so the 1332 block sigops
+        # leave a remainder under 100.
+        witness_script = CScript([OP_TRUE, OP_IF, OP_TRUE, OP_ELSE] + [OP_CHECKMULTISIG] * 5 + [OP_CHECKSIG] * 166 + [OP_ENDIF])
         script_pubkey = script_to_p2wsh_script(witness_script)
 
-        sigops_per_script = 20 * 5 + 193 * 1
+        sigops_per_script = 20 * 5 + 166 * 1
         # We'll produce 2 extra outputs, one with a program that would take us
         # over max sig ops, and one with a program that would exactly reach max
         # sig ops

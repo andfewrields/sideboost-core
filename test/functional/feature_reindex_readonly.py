@@ -20,11 +20,13 @@ class BlockstoreReindexTest(BitcoinTestFramework):
         self.extra_args = [["-fastprune"]]
 
     def reindex_readonly(self):
-        self.log.debug("Generate block big enough to start second block file")
-        fastprune_blockfile_size = 0x10000
-        opreturn = "6a"
-        nulldata = fastprune_blockfile_size * "ff"
-        self.generateblock(self.nodes[0], output=f"raw({opreturn}{nulldata})", transactions=[])
+        self.log.debug("Generate blocks big enough to start second block file")
+        # SideBoost: one block can't hold 64 KiB of non-witness data (66,668 WU
+        # limit), so mine several smaller ones until the second file appears.
+        opreturn = "6a4d983a"  # OP_RETURN OP_PUSHDATA2 15000
+        nulldata = 15000 * "ff"
+        while not (self.nodes[0].chain_path / "blocks" / "blk00001.dat").exists():
+            self.generateblock(self.nodes[0], output=f"raw({opreturn}{nulldata})", transactions=[])
         block_count = self.nodes[0].getblockcount()
         self.stop_node(0)
 

@@ -12,6 +12,10 @@ from test_framework.util import (
     assert_raises_rpc_error,
 )
 
+# SideBoost: the wallet's maximum number of outputs in a destination group
+# (Bitcoin: 100, scaled with the max standard tx weight)
+OUTPUT_GROUP_MAX_ENTRIES = 15
+
 def reset_balance(node, discardaddr):
     '''Throw away all owned coins by the node so it gets a balance of 0.'''
     balance = node.getbalance(avoid_reuse=False)
@@ -268,7 +272,7 @@ class AvoidReuseTest(BitcoinTestFramework):
         ret_addr = self.nodes[0].getnewaddress()
 
         # send multiple transactions, reusing one address
-        for _ in range(101):
+        for _ in range(OUTPUT_GROUP_MAX_ENTRIES + 1):
             self.nodes[0].sendtoaddress(new_addr, 1)
 
         self.generate(self.nodes[0], 1)
@@ -279,8 +283,8 @@ class AvoidReuseTest(BitcoinTestFramework):
 
         # getbalances and listunspent should show the remaining outputs
         # in the reused address as used/reused
-        assert_unspent(self.nodes[1], total_count=2, total_sum=96, reused_count=1, reused_sum=1, margin=0.01)
-        assert_balances(self.nodes[1], mine={"used": 1, "trusted": 95}, margin=0.01)
+        assert_unspent(self.nodes[1], total_count=2, total_sum=OUTPUT_GROUP_MAX_ENTRIES - 4, reused_count=1, reused_sum=1, margin=0.01)
+        assert_balances(self.nodes[1], mine={"used": 1, "trusted": OUTPUT_GROUP_MAX_ENTRIES - 5}, margin=0.01)
 
     def test_full_destination_group_is_preferred(self):
         '''
@@ -299,7 +303,8 @@ class AvoidReuseTest(BitcoinTestFramework):
         ret_addr = self.nodes[0].getnewaddress()
 
         # Send 101 outputs of 1 BTC to the same, reused address in the wallet
-        for _ in range(101):
+        # (SideBoost: OUTPUT_GROUP_MAX_ENTRIES + 1)
+        for _ in range(OUTPUT_GROUP_MAX_ENTRIES + 1):
             self.nodes[0].sendtoaddress(new_addr, 1)
 
         self.generate(self.nodes[0], 1)
@@ -309,8 +314,8 @@ class AvoidReuseTest(BitcoinTestFramework):
         txid = self.nodes[1].sendtoaddress(address=ret_addr, amount=0.5)
         inputs = self.nodes[1].getrawtransaction(txid, 1)["vin"]
 
-        # The transaction should use 100 inputs exactly
-        assert_equal(len(inputs), 100)
+        # The transaction should use 100 inputs exactly (SideBoost: OUTPUT_GROUP_MAX_ENTRIES)
+        assert_equal(len(inputs), OUTPUT_GROUP_MAX_ENTRIES)
 
     def test_all_destination_groups_are_used(self):
         '''
@@ -327,18 +332,19 @@ class AvoidReuseTest(BitcoinTestFramework):
         ret_addr = self.nodes[0].getnewaddress()
 
         # Send 202 outputs of 1 BTC to the same, reused address in the wallet
-        for _ in range(202):
+        # (SideBoost: 2 * OUTPUT_GROUP_MAX_ENTRIES + 2)
+        for _ in range(2 * OUTPUT_GROUP_MAX_ENTRIES + 2):
             self.nodes[0].sendtoaddress(new_addr, 1)
 
         self.generate(self.nodes[0], 1)
 
         # Sending a transaction that needs to use the full groups
         # of 100 inputs but also the incomplete group of 2 inputs.
-        txid = self.nodes[1].sendtoaddress(address=ret_addr, amount=200.5)
+        txid = self.nodes[1].sendtoaddress(address=ret_addr, amount=2 * OUTPUT_GROUP_MAX_ENTRIES + 0.5)
         inputs = self.nodes[1].getrawtransaction(txid, 1)["vin"]
 
         # The transaction should use 202 inputs exactly
-        assert_equal(len(inputs), 202)
+        assert_equal(len(inputs), 2 * OUTPUT_GROUP_MAX_ENTRIES + 2)
 
 
 if __name__ == '__main__':

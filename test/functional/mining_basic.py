@@ -11,6 +11,7 @@
 mining_template_verification.py tests getblocktemplate in proposal mode"""
 
 import copy
+import math
 from decimal import Decimal
 
 from test_framework.blocktools import (
@@ -53,8 +54,8 @@ from test_framework.wallet import (
 )
 
 
-DIFFICULTY_ADJUSTMENT_INTERVAL = 144
-MAX_FUTURE_BLOCK_TIME = 2 * 3600
+DIFFICULTY_ADJUSTMENT_INTERVAL = 500  # SideBoost: 500-block retarget window
+MAX_FUTURE_BLOCK_TIME = 5 * 60  # SideBoost: consensus nMaxFutureBlockTime
 MAX_TIMEWARP = 600
 VERSIONBITS_TOP_BITS = 0x20000000
 VERSIONBITS_DEPLOYMENT_TESTDUMMY_BIT = 28
@@ -213,13 +214,15 @@ class MiningTest(BitcoinTestFramework):
             self.nodes[0].setmocktime(t)
             self.generate(self.wallet, 1, sync_fun=self.no_op)
 
-        self.log.info("Create block two hours in the future")
+        self.log.info("Create block at the future-timestamp limit")
         self.nodes[0].setmocktime(t + MAX_FUTURE_BLOCK_TIME)
         self.generate(self.wallet, 1, sync_fun=self.no_op)
         assert_equal(node.getblock(node.getbestblockhash())['time'], t + MAX_FUTURE_BLOCK_TIME)
 
         self.log.info("First block template of retarget period can't use wall clock time")
-        self.nodes[0].setmocktime(t)
+        # SideBoost: the future limit (5 min) is below MAX_TIMEWARP (10 min), so
+        # put the clock before the timewarp minimum explicitly.
+        self.nodes[0].setmocktime(t + MAX_FUTURE_BLOCK_TIME - MAX_TIMEWARP - 100)
         # The template will have an adjusted timestamp, which we then modify
         tmpl = node.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
         assert_greater_than_or_equal(tmpl['curtime'], t + MAX_FUTURE_BLOCK_TIME - MAX_TIMEWARP)
@@ -242,7 +245,10 @@ class MiningTest(BitcoinTestFramework):
         }), None)
 
         bad_block = copy.deepcopy(block)
-        bad_block.nTime = t
+        # SideBoost: with a 5-minute future limit, "now" is no longer more than
+        # MAX_TIMEWARP before the previous block, so go further back (still
+        # after the median time past).
+        bad_block.nTime = t + MAX_FUTURE_BLOCK_TIME - MAX_TIMEWARP - 100
         bad_block.solve()
         assert_raises_rpc_error(-25, 'time-timewarp-attack', lambda: node.submitheader(hexdata=CBlockHeader(bad_block).serialize().hex()))
 
@@ -259,7 +265,7 @@ class MiningTest(BitcoinTestFramework):
         self.log.info("Test that GetMinimumTime accounts for the Murch-Zawy rule (BIP54)")
         node = self.nodes[0]
 
-        self.log.info("Mine the first block of a retarget period two hours in the future")
+        self.log.info("Mine the first block of a retarget period at the future-timestamp limit")
         blockchain_info = node.getblockchaininfo()
         n = DIFFICULTY_ADJUSTMENT_INTERVAL - blockchain_info['blocks'] % DIFFICULTY_ADJUSTMENT_INTERVAL - 1
         t = blockchain_info['time']
@@ -342,8 +348,9 @@ class MiningTest(BitcoinTestFramework):
         utxos = [self.wallet.get_utxo(confirmed_only=True) for _ in range(LARGE_TXS_COUNT + 4)] # Add 4 more utxos that will be used in the test later
         self.send_transactions(utxos[:LARGE_TXS_COUNT], HIGH_FEERATE, LARGE_VSIZE)
 
-        # Send 2 normal transactions with a lower fee rate
-        NORMAL_VSIZE = int(2000 / WITNESS_SCALE_FACTOR)
+        # Send 2 normal transactions with a lower fee rate.  Four of them fill
+        # the rest of the block (SideBoost: 502 vbytes; Bitcoin: 500).
+        NORMAL_VSIZE = math.ceil((MAX_BLOCK_WEIGHT / WITNESS_SCALE_FACTOR - LARGE_TXS_COUNT * LARGE_VSIZE) / 4)
         NORMAL_FEERATE = Decimal("0.0001")
         self.send_transactions(utxos[LARGE_TXS_COUNT:LARGE_TXS_COUNT + 2], NORMAL_FEERATE, NORMAL_VSIZE)
 
@@ -359,14 +366,15 @@ class MiningTest(BitcoinTestFramework):
         )
 
         # Test block template creation with custom -blockmaxweight
-        custom_block_weight = MAX_BLOCK_WEIGHT - 2000
-        # Reducing the weight by 2000 units will prevent 1 large transaction from fitting into the block.
+        # Reducing the weight by 1600 units will prevent 1 large transaction from fitting into the block
+        # (SideBoost: small enough to still leave room for the 2 normal transactions).
+        custom_block_weight = MAX_BLOCK_WEIGHT - 1600
         self.restart_node(0, extra_args=[f"-blockmaxweight={custom_block_weight}"])
 
         self.log.info("Testing the block template with custom -blockmaxweight to include 9 large and 2 normal transactions.")
         self.verify_block_template(
             expected_tx_count=11,
-            expected_weight=MAX_BLOCK_WEIGHT - DEFAULT_BLOCK_RESERVED_WEIGHT - 2000,
+            expected_weight=MAX_BLOCK_WEIGHT - DEFAULT_BLOCK_RESERVED_WEIGHT - 1600,
         )
 
         # Ensure the block weight does not exceed the maximum
@@ -375,7 +383,8 @@ class MiningTest(BitcoinTestFramework):
         self.log.info("Sending 2 additional normal transactions to fill the mempool to the maximum block weight.")
         self.send_transactions(utxos[LARGE_TXS_COUNT + 2:], NORMAL_FEERATE, NORMAL_VSIZE)
         self.log.info(f"Testing that the mempool's weight matches the maximum block weight: {MAX_BLOCK_WEIGHT}.")
-        assert_equal(self.nodes[0].getmempoolinfo()['bytes'] * WITNESS_SCALE_FACTOR, MAX_BLOCK_WEIGHT)
+        # (SideBoost: transaction sizes are whole vbytes, so this can't be exact.)
+        assert_greater_than_or_equal(self.nodes[0].getmempoolinfo()['bytes'] * WITNESS_SCALE_FACTOR, MAX_BLOCK_WEIGHT)
 
         self.log.info("Testing that the block template includes only 10 transactions and cannot reach full block weight.")
         self.verify_block_template(

@@ -662,8 +662,9 @@ def check_node_connections(*, node, num_in, num_out):
 def gen_return_txouts():
     from .messages import CTxOut
     from .script import CScript, OP_RETURN
-    txouts = [CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN, b'\x01'*67437]))]
-    assert_equal(sum([len(txout.serialize()) for txout in txouts]), 67456)
+    # SideBoost: sized so the transaction (~14.1 kvB) still fits in a block.
+    txouts = [CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN, b'\x01'*14000]))]
+    assert_equal(sum([len(txout.serialize()) for txout in txouts]), 14015)
     return txouts
 
 
@@ -685,11 +686,10 @@ def create_lots_of_big_transactions(mini_wallet, node, fee, tx_batch_size, txout
 
 
 def mine_large_block(test_framework, mini_wallet, node):
-    # generate a 66k transaction,
-    # and 14 of them is close to the 1MB block limit
+    # generate a ~14k transaction, which nearly fills a SideBoost block
     txouts = gen_return_txouts()
     fee = 100 * node.getnetworkinfo()["relayfee"]
-    create_lots_of_big_transactions(mini_wallet, node, fee, 14, txouts)
+    create_lots_of_big_transactions(mini_wallet, node, fee, 1, txouts)
     test_framework.generate(node, 1)
 
 

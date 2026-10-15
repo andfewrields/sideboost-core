@@ -437,9 +437,9 @@ class PackageRelayTest(BitcoinTestFramework):
         large_orphans = [create_large_orphan() for _ in range(50)]
         # Check to make sure these are orphans, within max standard size (to be accepted into the orphanage)
         for large_orphan in large_orphans:
-            assert_greater_than_or_equal(100000, large_orphan.get_vsize())
+            assert_greater_than_or_equal(MAX_STANDARD_TX_WEIGHT // 4, large_orphan.get_vsize())
             assert_greater_than(MAX_STANDARD_TX_WEIGHT, large_orphan.get_weight())
-            assert_greater_than_or_equal(3 * large_orphan.get_vsize(), 2 * 100000)
+            assert_greater_than_or_equal(3 * large_orphan.get_vsize(), 2 * (MAX_STANDARD_TX_WEIGHT // 4))
             testres = node.testmempoolaccept([large_orphan.serialize().hex()])
             assert not testres[0]["allowed"]
             assert_equal(testres[0]["reject-reason"], "missing-inputs")
@@ -461,10 +461,12 @@ class PackageRelayTest(BitcoinTestFramework):
 
         self.log.info("Send an orphan from a non-DoSy peer. Its orphan should not be evicted.")
         low_fee_parent = self.create_tx_below_mempoolminfee(self.wallet)
+        # SideBoost: 1000 vB less than the max, so the package fits in a cluster
+        # (whose default limit is the max standard tx size; on Bitcoin it's 1000 vB more)
         high_fee_child = self.wallet.create_self_transfer(
             utxo_to_spend=low_fee_parent["new_utxo"],
             fee_rate=200*FEERATE_1SAT_VB,
-            target_vsize=100000
+            target_vsize=MAX_STANDARD_TX_WEIGHT // 4 - 1000
         )
 
         # Announce

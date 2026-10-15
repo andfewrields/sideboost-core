@@ -37,22 +37,28 @@ class PrivateBroadcastCapTest(BitcoinTestFramework):
     def run_test(self):
         node = self.nodes[0]
         wallet = MiniWallet(node)
-        # Mature one coinbase to spend.
-        self.generate(wallet, 101)
+        # SideBoost: a transaction must fit in a block, so fan out to
+        # MAX_TRANSACTIONS + OVER_CAP outputs over several parents of
+        # OUTPUTS_PER_PARENT outputs each, one per block, each spending its own
+        # mature coinbase.
+        OUTPUTS_PER_PARENT = 300
+        num_parents = -(-(MAX_TRANSACTIONS + OVER_CAP) // OUTPUTS_PER_PARENT)
+        self.generate(wallet, 100 + num_parents)
 
-        # Build a parent that fans out to MAX_TRANSACTIONS + OVER_CAP outputs.
-        # Inject it directly via generateblock since -privatebroadcast bypasses
-        # the mempool
-        utxo = wallet.get_utxo()
-        parent = wallet.create_self_transfer_multi(
-            utxos_to_spend=[utxo],
-            num_outputs=MAX_TRANSACTIONS + OVER_CAP,
-            fee_per_output=500,
-        )
-        self.generateblock(node, wallet.get_address(), [parent["hex"]])
+        # Inject the parents directly via generateblock since -privatebroadcast
+        # bypasses the mempool
+        fanout_utxos = []
+        while len(fanout_utxos) < MAX_TRANSACTIONS + OVER_CAP:
+            parent = wallet.create_self_transfer_multi(
+                utxos_to_spend=[wallet.get_utxo()],
+                num_outputs=min(OUTPUTS_PER_PARENT, MAX_TRANSACTIONS + OVER_CAP - len(fanout_utxos)),
+                fee_per_output=500,
+            )
+            self.generateblock(node, wallet.get_address(), [parent["hex"]])
+            fanout_utxos += parent["new_utxos"]
 
         children = [wallet.create_self_transfer(utxo_to_spend=u)
-                    for u in parent["new_utxos"]]
+                    for u in fanout_utxos]
         assert_equal(len(children), MAX_TRANSACTIONS + OVER_CAP)
 
         # Fill the queue exactly to the cap; every distinct submission succeeds.

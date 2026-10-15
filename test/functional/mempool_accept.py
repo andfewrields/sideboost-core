@@ -22,7 +22,6 @@ from test_framework.messages import (
     CTxIn,
     CTxInWitness,
     CTxOut,
-    MAX_BLOCK_WEIGHT,
     WITNESS_SCALE_FACTOR,
     MAX_MONEY,
     SEQUENCE_FINAL,
@@ -233,7 +232,9 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
 
         self.log.info('A really large transaction')
         tx = tx_from_hex(raw_tx_reference)
-        tx.vin = [tx.vin[0]] * math.ceil((MAX_BLOCK_WEIGHT // WITNESS_SCALE_FACTOR) / len(tx.vin[0].serialize()))
+        # SideBoost: "bad-txns-oversize" (CheckTransaction) still uses Bitcoin's
+        # global 4M bound; the smaller block weight is enforced separately.
+        tx.vin = [tx.vin[0]] * math.ceil((4_000_000 // WITNESS_SCALE_FACTOR) / len(tx.vin[0].serialize()))
         self.check_mempool_result(
             result_expected=[{'txid': tx.txid_hex, 'allowed': False, 'reject-reason': 'bad-txns-oversize'}],
             rawtxs=[tx.serialize().hex()],
@@ -351,7 +352,8 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         # are standard since v30
         tx = tx_from_hex(raw_tx_reference)
         tx.vout.append(CTxOut(0, CScript([OP_RETURN, b'\xff'])))
-        tx.vout.append(CTxOut(0, CScript([OP_RETURN, b'\xff' * 50000])))
+        # (SideBoost: 14000 bytes rather than 50000, so the tx fits in a block)
+        tx.vout.append(CTxOut(0, CScript([OP_RETURN, b'\xff' * 14000])))
 
         self.check_mempool_result(
             result_expected=[{'txid': tx.txid_hex, 'allowed': True, 'vsize_adjusted': tx.get_vsize(), 'vsize': tx.get_vsize(), 'vsize_bip141': tx.get_vsize(), 'fees': {'base': Decimal('0.05')}}],
@@ -373,7 +375,9 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         self.log.info("A transaction with an OP_RETURN output that bumps into the max standardness tx size.")
         tx = tx_from_hex(raw_tx_reference)
         tx.vout[0].scriptPubKey = CScript([OP_RETURN])
-        data_len = int(MAX_STANDARD_TX_WEIGHT / 4) - tx.get_vsize() - 5 - 4  # -5 for PUSHDATA4 and -4 for script size
+        # SideBoost: the data stays below 65536 bytes, so -3 for PUSHDATA2 and
+        # -2 for the script size (which grows from 1 to 3 bytes)
+        data_len = int(MAX_STANDARD_TX_WEIGHT / 4) - tx.get_vsize() - 3 - 2
         tx.vout[0].scriptPubKey = CScript([OP_RETURN, b"\xff" * (data_len)])
         assert_equal(tx.get_vsize(), int(MAX_STANDARD_TX_WEIGHT / 4))
         self.check_mempool_result(

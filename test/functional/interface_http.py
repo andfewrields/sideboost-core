@@ -812,12 +812,15 @@ class HTTPBasicsTest (BitcoinTestFramework):
         # Request the big block JSON once to check its size and establish the connection
         URI = f"/rest/block/{big_block_hash}.json"
         response_body_size = len(conn.get(URI).read())
-        assert response_body_size > 7 * 1024 * 1024, f"Big block JSON response size is {response_body_size} bytes"
+        # SideBoost: blocks are small (~116 kB of JSON rather than over 7 MiB);
+        # what matters is that the unread responses far exceed MAX_BODY_SIZE.
+        assert response_body_size > 64 * 1024, f"Big block JSON response size is {response_body_size} bytes"
 
         # Prepare a batch of requests. We want to fill up at
         # least one server-side read operation (about 65kB, see HTTPRemoteClient::Receive()).
         single_req = f"GET {URI} HTTP/1.1\r\nHost: somehost\r\n\r\n"
         num_req = 0x10000 // len(single_req)
+        assert num_req * response_body_size > MAX_BODY_SIZE
         batch = single_req * num_req
         self.log.info(f"Sending {num_req} big block JSON requests")
 
@@ -832,7 +835,10 @@ class HTTPBasicsTest (BitcoinTestFramework):
         # Expect progress to stall after a few seconds.
         count = 0
         prev_count = -1
-        min_count = MAX_BODY_SIZE // response_body_size
+        # SideBoost: one fewer, as the server may stop right at MAX_BODY_SIZE //
+        # response_body_size: each response also carries headers, and with ~290
+        # small responses (rather than a few large ones) there's no slack.
+        min_count = MAX_BODY_SIZE // response_body_size - 1
 
         def progress_stalled():
             nonlocal count, prev_count
@@ -848,7 +854,9 @@ class HTTPBasicsTest (BitcoinTestFramework):
 
         # Large enough interval, to ensure throttling occurred, rather than
         # merely slow JSON serialization.
-        self.wait_until(progress_stalled, check_interval=5)
+        # (SideBoost: ~290 small responses fill MAX_BODY_SIZE rather than a few
+        # large ones, which takes about a minute, so allow longer)
+        self.wait_until(progress_stalled, check_interval=5, timeout=180)
 
         # Drain the responses that were handled up to the stall point,
         # plus a few more to confirm that pulling out the cork restores the flow.

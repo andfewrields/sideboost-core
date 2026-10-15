@@ -65,11 +65,12 @@ class MempoolLimitTest(BitcoinTestFramework):
         # Series of parents that don't need CPFP and are submitted individually. Each one is large
         # which means in aggregate they could trigger eviction, but child submission should result
         # in them not being evicted
-        parent_vsize = 25000
+        # SideBoost: the package must fit in a cluster (a block, ~14.6k vbytes).
+        parent_vsize = 4500
         num_big_parents = 3
-        # Need to be large enough to trigger eviction
-        # (note that the mempool usage of a tx is about three times its vsize)
-        assert_greater_than(parent_vsize * num_big_parents * 3, current_info["maxmempool"] - current_info["bytes"])
+        # Need to be large enough to trigger eviction: compare against the
+        # memory still free in the (full) mempool.
+        assert_greater_than(parent_vsize * num_big_parents, current_info["maxmempool"] - current_info["usage"])
 
         big_parent_txids = []
         big_parent_wtxids = []
@@ -206,7 +207,10 @@ class MempoolLimitTest(BitcoinTestFramework):
         self.log.info('Check that mempoolminfee is minrelaytxfee')
         assert_equal(node.getmempoolinfo()['minrelaytxfee'], node.getmempoolinfo()["mempoolminfee"])
 
-        node.setmocktime(int(time.time())-3600)
+        # Stay within SideBoost's 5-minute future-timestamp limit: blocks
+        # mined during fill_mempool are dated after the tip, which is at or
+        # slightly ahead of real time.
+        node.setmocktime(int(time.time())-120)
         fill_mempool(self, node)
         node.setmocktime(0) # bump time forward so the rate limit buckets refresh and don't block broadcast
 
@@ -259,10 +263,12 @@ class MempoolLimitTest(BitcoinTestFramework):
         for txid in current_mempool:
             entry = node.getmempoolentry(txid)
             worst_feerate_btcvb = min(worst_feerate_btcvb, entry["fees"]["descendant"] / entry["descendantsize"])
-        # Needs to be large enough to trigger eviction
-        # (note that the mempool usage of a tx is about three times its vsize)
-        target_vsize_each = 50000
-        assert_greater_than(target_vsize_each * 2 * 3, node.getmempoolinfo()["maxmempool"] - node.getmempoolinfo()["bytes"])
+        # Needs to be large enough to trigger eviction.  SideBoost: the package
+        # must fit in a cluster (a block, ~14.6k vbytes), so compare against
+        # the memory still free in the (full) mempool rather than a rough
+        # vsize estimate.
+        target_vsize_each = 7000
+        assert_greater_than(target_vsize_each * 2, node.getmempoolinfo()["maxmempool"] - node.getmempoolinfo()["usage"])
         # Should be a true CPFP: parent's feerate is just below mempool min feerate
         parent_feerate = mempoolmin_feerate - Decimal("0.0000001")  # 0.01 sats/vbyte below min feerate
         # Parent + child is above mempool minimum feerate
@@ -284,7 +290,9 @@ class MempoolLimitTest(BitcoinTestFramework):
 
         self.log.info('Test passing a value below the minimum (5 MB) to -maxmempool throws an error')
         self.stop_node(0)
-        self.nodes[0].assert_start_raises_init_error(["-maxmempool=4"], "Error: -maxmempool must be at least 5 MB")
+        # SideBoost: the minimum is 40 clusters, and SideBoost's default cluster
+        # limit (14,666 vB) makes it 1 MB, so use Bitcoin's 101 kvB here.
+        self.nodes[0].assert_start_raises_init_error(["-maxmempool=4", "-limitclustersize=101"], "Error: -maxmempool must be at least 5 MB")
 
         self.test_mid_package_eviction_success()
         self.test_mid_package_replacement()

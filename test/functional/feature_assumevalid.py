@@ -132,10 +132,14 @@ class AssumeValidTest(BitcoinTestFramework):
             height += 1
         block_1_hash = self.blocks[0].hash_hex
 
-        self.start_node(1, extra_args=[f"-assumevalid={block102.hash_hex}"])
-        self.start_node(2, extra_args=[f"-assumevalid={block102.hash_hex}"])
-        self.start_node(3, extra_args=[f"-assumevalid={block102.hash_hex}"])
-        self.start_node(4, extra_args=[f"-assumevalid={block102.hash_hex}"])
+        # SideBoost: assumevalid needs two weeks' worth of work built on top
+        # (~121,000 blocks at 10 s), so lower the burial to 2016 blocks' worth;
+        # the 2100 blocks above exceed it, as they exceed two weeks on Bitcoin.
+        burial = f"-assumevalidburial={2016 * 10}"
+        self.start_node(1, extra_args=[f"-assumevalid={block102.hash_hex}", burial])
+        self.start_node(2, extra_args=[f"-assumevalid={block102.hash_hex}", burial])
+        self.start_node(3, extra_args=[f"-assumevalid={block102.hash_hex}", burial])
+        self.start_node(4, extra_args=[f"-assumevalid={block102.hash_hex}", burial])
         self.start_node(5)
 
         # nodes[0]

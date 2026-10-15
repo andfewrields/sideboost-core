@@ -47,15 +47,19 @@ from .script_util import (
 )
 from .util import assert_equal
 
-MAX_BLOCK_SIGOPS = 20000
+MAX_BLOCK_SIGOPS = 333  # SideBoost: MAX_BLOCK_SIGOPS_COST / WITNESS_SCALE_FACTOR
 MAX_BLOCK_SIGOPS_WEIGHT = MAX_BLOCK_SIGOPS * WITNESS_SCALE_FACTOR
-MAX_STANDARD_TX_SIGOPS = 4000
-MAX_STANDARD_TX_WEIGHT = 400000
+# SideBoost: the largest transaction that fits in a block next to the default
+# coinbase reservation (GetMaxStandardTxWeight / GetMaxStandardTxSigOpsCost)
+MAX_STANDARD_TX_SIGOPS = 232  # 931 sigops cost / WITNESS_SCALE_FACTOR
+MAX_STANDARD_TX_WEIGHT = 58664
 
 # Genesis block time (regtest)
 TIME_GENESIS_BLOCK = 1296688602
 
-MAX_FUTURE_BLOCK_TIME = 2 * 60 * 60
+MAX_FUTURE_BLOCK_TIME = 5 * 60  # SideBoost: consensus nMaxFutureBlockTime
+# Grace period for timestamps in rescans and pruning (Bitcoin's 2 hours)
+TIMESTAMP_WINDOW = 2 * 60 * 60
 
 # Coinbase transaction outputs can only be spent after this number of new blocks (network rule)
 COINBASE_MATURITY = 100

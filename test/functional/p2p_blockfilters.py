@@ -57,7 +57,7 @@ class CompactFiltersTest(BitcoinTestFramework):
         peer_1 = self.nodes[1].add_p2p_connection(FiltersClient())
 
         # Nodes 0 & 1 share the same first 999 blocks in the chain.
-        self.generate(self.nodes[0], 999)
+        self.generate_with_mocktime(self.nodes[0], 999)
 
         # Stale blocks by disconnecting nodes 0 & 1, mining, then reconnecting
         self.disconnect_nodes(0, 1)
@@ -66,7 +66,7 @@ class CompactFiltersTest(BitcoinTestFramework):
         self.nodes[0].syncwithvalidationinterfacequeue()
         assert_equal(self.nodes[0].getblockcount(), 1000)
 
-        self.generate(self.nodes[1], 1001, sync_fun=self.no_op)
+        self.generate_with_mocktime(self.nodes[1], 1001, sync_fun=self.no_op)
         assert_equal(self.nodes[1].getblockcount(), 2000)
 
         # Check that nodes have signalled NODE_COMPACT_FILTERS correctly.

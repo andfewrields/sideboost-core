@@ -522,6 +522,15 @@ class SendHeadersTest(BitcoinTestFramework):
         [test_node.send_without_ping(msg_block(x)) for x in blocks]
 
         self.log.info("Part 5: Testing handling of unconnecting headers")
+        # SideBoost: the ~300 blocks below are each dated 1 s after the
+        # previous one; move the clocks ahead so they stay within the
+        # 5-minute future-timestamp limit, while the tip stays recent enough
+        # (20 block intervals = 200 s) for the node to fetch blocks directly.
+        # Let the node finish processing the blocks above first, so the jump
+        # doesn't trip the block download timeout (10 s at SideBoost's spacing).
+        test_node.sync_with_ping()
+        for node in self.nodes:
+            node.setmocktime(block_time + 150)
         # First we test that receipt of an unconnecting header doesn't prevent
         # chain sync.
         expected_hash = tip
