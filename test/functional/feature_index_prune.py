@@ -39,7 +39,29 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
         ]
 
     def setup_network(self):
+        self.clock = 0
         self.setup_nodes()  # No P2P connection, so that linear_sync works
+
+    def set_clock(self, node):
+        """SideBoost: keep every node's mock clock up with the tip, so that
+        fast mining doesn't run past the 5-minute future-timestamp limit (see
+        generate_with_mocktime)."""
+        tip_time = node.getblockheader(node.getbestblockhash())["time"]
+        self.clock = max(self.clock, tip_time)
+        for n in self.nodes:
+            if n.running:
+                n.setmocktime(self.clock)
+
+    def clock_args(self):
+        """SideBoost: a node refuses to start with a tip more than 5 minutes
+        ahead of its clock."""
+        return [f"-mocktime={self.clock}"] if self.clock else []
+
+    def start_node(self, i, extra_args=None, *args, **kwargs):
+        extra_args = (self.nodes[i].extra_args if extra_args is None else extra_args) + self.clock_args()
+        super().start_node(i, extra_args, *args, **kwargs)
+        if self.clock:
+            self.nodes[i].setmocktime(self.clock)
 
     def linear_sync(self, node_from, *, height_from=None):
         # Linear sync over RPC, because P2P sync may not be linear
@@ -52,7 +74,14 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
                 list(rpc_threads.map(lambda n: n.submitblock(b), self.nodes))
 
     def generate(self, node, num_blocks, sync_fun=None):
-        return super().generate(node, num_blocks, sync_fun=sync_fun or (lambda: self.linear_sync(node)))
+        blocks = []
+        while num_blocks > 0:
+            chunk = min(num_blocks, 12)
+            blocks += super().generate(node, chunk, sync_fun=self.no_op)
+            num_blocks -= chunk
+            self.set_clock(node)
+        (sync_fun or (lambda: self.linear_sync(node)))()
+        return blocks
 
     def sync_index(self, height):
         expected_filter = {
@@ -100,7 +129,9 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
                 pruneheight_new = node.pruneblockchain(400)
                 # the prune heights used here and below are magic numbers that are determined by the
                 # thresholds at which block files wrap, so they depend on disk serialization and default block file size.
-                assert_equal(pruneheight_new, 249)
+                # (SideBoost: regtest blocks carry AuxPoW, ~466 bytes rather than Bitcoin's ~260, so the
+                # cached chain alone fills the first file and the next one wraps at 337 rather than 249.)
+                assert_equal(pruneheight_new, 337)
 
         self.log.info("check if we can access the tips blockfilter and coinstats when we have pruned some blocks")
         tip = self.nodes[0].getbestblockhash()
@@ -117,8 +148,9 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
             assert node.gettxoutsetinfo(hash_type="muhash", hash_or_height=height_hash)['muhash']
 
         # mine and sync index up to a height that will later be the pruneheight
-        self.generate(self.nodes[0], 54)
-        self.sync_index(height=754)
+        # (SideBoost: just past the block file that ends at 889, rather than 753)
+        self.generate(self.nodes[0], 190)
+        self.sync_index(height=890)
 
         self.restart_without_indices()
 
@@ -130,12 +162,12 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
             msg = "Querying specific block heights requires coinstatsindex"
             assert_raises_rpc_error(-8, msg, node.gettxoutsetinfo, "muhash", height_hash)
 
-        self.generate(self.nodes[0], 746)
+        self.generate(self.nodes[0], 610)
 
         self.log.info("prune exactly up to the indices best blocks while the indices are disabled")
         for i in range(3):
             pruneheight_2 = self.nodes[i].pruneblockchain(1000)
-            assert_equal(pruneheight_2, 753)
+            assert_equal(pruneheight_2, 889)
             # Restart the nodes again with the indices activated
             self.restart_node(i, extra_args=self.extra_args[i])
 
@@ -156,7 +188,7 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
         stats_msg = "Error: coinstatsindex best block of the index goes beyond pruned data (including undo data). Please disable the index or reindex (which will download the whole blockchain again)"
         end_msg = f"{os.linesep}Error: A fatal internal error occurred, see debug.log for details: Failed to start indexes, shutting down…"
         for i, msg in enumerate([filter_msg, stats_msg, filter_msg]):
-            self.nodes[i].assert_start_raises_init_error(extra_args=self.extra_args[i], expected_msg=msg+end_msg)
+            self.nodes[i].assert_start_raises_init_error(extra_args=self.extra_args[i] + self.clock_args(), expected_msg=msg+end_msg)
 
         self.log.info("fetching the missing blocks with getblockfrompeer doesn't work for block filter index and coinstatsindex")
         # Only checking the first two nodes since this test takes a long time
@@ -182,7 +214,7 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
             # data of the blocks to be available as well and getblockfrompeer
             # can not provide that.
             self.stop_node(i)
-            node.assert_start_raises_init_error(extra_args=self.extra_args[i], expected_msg=msg+end_msg)
+            node.assert_start_raises_init_error(extra_args=self.extra_args[i] + self.clock_args(), expected_msg=msg+end_msg)
 
         self.log.info("make sure the nodes start again with the indices and an additional -reindex arg")
         for i in range(3):
@@ -195,7 +227,7 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
         for node in self.nodes[:2]:
             with node.assert_debug_log(['limited pruning to height 2489']):
                 pruneheight_new = node.pruneblockchain(2500)
-                assert_equal(pruneheight_new, 2013)
+                assert_equal(pruneheight_new, 2206)  # SideBoost: 2013 on Bitcoin (see above)
 
         self.log.info("ensure that prune locks don't prevent indices from failing in a reorg scenario")
         with self.nodes[0].assert_debug_log(['basic block filter index prune lock moved back to 2480']):

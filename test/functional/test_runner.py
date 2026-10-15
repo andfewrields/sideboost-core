@@ -87,7 +87,8 @@ TEST_FRAMEWORK_UNIT_TESTS = 'feature_framework_unit_tests.py'
 EXTENDED_SCRIPTS = [
     # These tests are not run by default.
     # Longest test should go first, to favor running tests in parallel
-    'feature_pruning.py',
+    # SideBoost: skipped, see SKIPPED below
+    #'feature_pruning.py',
     'feature_dbcrash.py',
     'feature_index_prune.py',
     'feature_utxo_abort_on_error.py',
@@ -449,6 +450,10 @@ BASE_SCRIPTS = [
 SKIPPED = [
     'feature_signet.py',
     'feature_versionbits_warning.py',
+    # SideBoost: needs > 550 MiB of blocks (the minimum -prune target), i.e.
+    # ~35k full blocks rather than 645, and its heights and block-file
+    # numbers assume 1 MB blocks.  Revisit with MIN_BLOCKS_TO_KEEP.
+    'feature_pruning.py',
     'mempool_cluster.py',
     'mining_mainnet.py',
     'name_deterministic_salt.py',

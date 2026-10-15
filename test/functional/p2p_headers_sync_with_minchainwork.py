@@ -179,7 +179,23 @@ class RejectLowDifficultyHeadersTest(BitcoinTestFramework):
         # Temporarily hold time to avoid internal timeouts (SideBoost: not
         # behind the tips, or the 5-minute future limit rejects their blocks)
         self.mocktime_all(max([int(time.time())] + [n.getblockheader(n.getbestblockhash())['time'] for n in self.nodes]))
-        self.sync_blocks(timeout=300) # Ensure tips eventually agree
+
+        # Ensure tips eventually agree
+        # SideBoost: a low-work headers sync ends where the chain's work passes
+        # the anti-DoS threshold, short of the tip, and the remaining headers
+        # are only requested on the next tip announcement.  If node0 announced
+        # node1's tip before node2's sync started, nothing else prompts it
+        # while the clocks are held (also on Bitcoin; a race that load makes
+        # likelier), so mine another block whenever the sync stalls.
+        for _ in range(10):
+            try:
+                self.sync_blocks(timeout=30)
+                break
+            except AssertionError:
+                self.log.info("Sync stalled; mining a block to announce a new tip")
+                self.generate(self.nodes[1], 1, sync_fun=self.no_op)
+        else:
+            self.sync_blocks(timeout=30)
         # SideBoost: keep the clocks held; after mining thousands of blocks in
         # a burst, real time is more than 5 minutes behind the tips.
 

@@ -31,6 +31,7 @@ import time
 from test_framework.blocktools import COINBASE_MATURITY
 from test_framework.messages import (
     COIN,
+    MAX_BLOCK_WEIGHT,
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -49,9 +50,13 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
         self.rpc_timeout = 480
 
         # Set -maxmempool=0 to turn off mempool memory sharing with dbcache
+        # SideBoost: -checknamedb=-1, as the per-block name DB check flushes
+        # the coins cache, and a small block's flush never exceeds
+        # -dbbatchsize, which is where the simulated crash happens.
         self.base_args = [
             "-maxmempool=0",
             "-dbbatchsize=200000",
+            "-checknamedb=-1",
         ]
 
         # Set different crash ratios and cache sizes.  Note that not all of
@@ -62,7 +67,7 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
 
         # Node3 is a normal node with default args, except will mine full blocks
         # and txs with "dust" outputs
-        self.node3_args = ["-blockmaxweight=4000000", "-dustrelayfee=0"]
+        self.node3_args = [f"-blockmaxweight={MAX_BLOCK_WEIGHT}", "-dustrelayfee=0"]
         self.extra_args = [self.node0_args, self.node1_args, self.node2_args, self.node3_args]
 
     def setup_network(self):
@@ -203,10 +208,13 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
         self.crashed_on_restart = 0      # Track count of crashes during recovery
 
         # Start by creating a lot of utxos on node3
+        # (SideBoost: in transactions of 200 rather than 1000 outputs, which
+        # take a block each)
         utxo_list = []
-        for _ in range(5):
-            utxo_list.extend(self.wallet.send_self_transfer_multi(from_node=self.nodes[3], num_outputs=1000)['new_utxos'])
-        self.generate(self.nodes[3], 1, sync_fun=self.no_op)
+        for _ in range(25):
+            utxo_list.extend(self.wallet.send_self_transfer_multi(from_node=self.nodes[3], num_outputs=200)['new_utxos'])
+        while self.nodes[3].getmempoolinfo()["size"]:
+            self.generate(self.nodes[3], 1, sync_fun=self.no_op)
         assert_equal(len(self.nodes[3].getrawmempool()), 0)
         self.log.info(f"Prepped {len(utxo_list)} utxo entries")
 
@@ -240,12 +248,14 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
                     self.nodes[3].invalidateblock(self.nodes[3].getblockhash(random_height))
 
             # Now generate new blocks until we pass the old tip height
+            # (SideBoost: and until the mempool is empty, as the transactions
+            # take ~35 blocks rather than one)
             self.log.debug("Mining longer tip")
             block_hashes = []
-            while current_height + 1 > self.nodes[3].getblockcount():
+            while current_height + 1 > self.nodes[3].getblockcount() or self.nodes[3].getmempoolinfo()["size"]:
                 block_hashes.extend(self.generatetoaddress(
                     self.nodes[3],
-                    nblocks=min(10, current_height + 1 - self.nodes[3].getblockcount()),
+                    nblocks=max(1, min(10, current_height + 1 - self.nodes[3].getblockcount())),
                     # new address to avoid mining a block that has just been invalidated
                     address=getnewdestination()[2],
                     sync_fun=self.no_op,
