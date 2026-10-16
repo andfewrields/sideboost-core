@@ -10,7 +10,6 @@
 #include <node/types.h>
 #include <outputtype.h>
 #include <script/descriptor.h>
-#include <script/names.h>
 #include <script/script.h>
 #include <script/sign.h>
 #include <script/solver.h>
@@ -254,11 +253,6 @@ bool LegacyDataSPKM::CheckDecryptionKey(const CKeyingMaterial& master_key)
 }
 
 std::unique_ptr<SigningProvider> LegacyDataSPKM::GetSolvingProvider(const CScript& script) const
-{
-    return std::make_unique<LegacySigningProvider>(*this);
-}
-
-std::unique_ptr<SigningProvider> LegacyDataSPKM::GetSigningProviderWithKeys(const CScript& script) const
 {
     return std::make_unique<LegacySigningProvider>(*this);
 }
@@ -779,7 +773,7 @@ std::optional<MigrationData> LegacyDataSPKM::MigrateToDescriptor()
     // and checking CanProvide() which will dummy sign.
     for (const CScript& script : GetCandidateScriptPubKeys()) {
         // Since we only care about P2SH, P2WSH, and P2SH-P2WSH, filter out any scripts that are not those
-        if (!script.IsPayToScriptHash(false) && !script.IsPayToWitnessScriptHash(false)) {
+        if (!script.IsPayToScriptHash() && !script.IsPayToWitnessScriptHash()) {
             continue;
         }
         if (IsMine(script)) {
@@ -977,14 +971,8 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
 
 bool DescriptorScriptPubKeyMan::IsMine(const CScript& script) const
 {
-    // If we have a name script, strip the prefix.  Typically this is handled
-    // by Solver, but here we don't go through the Solver so need to manage
-    // name prefixes separately.
-    const CNameScript nameOp(script);
-    const CScript& baseScript = nameOp.getAddress();
-
     LOCK(cs_desc_man);
-    return m_map_script_pub_keys.contains(baseScript);
+    return m_map_script_pub_keys.contains(script);
 }
 
 bool DescriptorScriptPubKeyMan::CheckDecryptionKey(const CKeyingMaterial& master_key)
@@ -1282,16 +1270,10 @@ int64_t DescriptorScriptPubKeyMan::GetTimeFirstKey() const
 
 std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvider(const CScript& script, bool include_private) const
 {
-    // If we have a name script, strip the prefix.  Typically this is handled
-    // by Solver, but here we don't go through the Solver so need to manage
-    // name prefixes separately.
-    const CNameScript nameOp(script);
-    const CScript& baseScript = nameOp.getAddress();
-
     LOCK(cs_desc_man);
 
     // Find the index of the script
-    auto it = m_map_script_pub_keys.find(baseScript);
+    auto it = m_map_script_pub_keys.find(script);
     if (it == m_map_script_pub_keys.end()) {
         return nullptr;
     }
@@ -1349,11 +1331,6 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
     }
 
     return out_keys;
-}
-
-std::unique_ptr<SigningProvider> DescriptorScriptPubKeyMan::GetSigningProviderWithKeys(const CScript& output) const
-{
-    return std::unique_ptr<SigningProvider>(GetSigningProvider(output, true).release());
 }
 
 std::unique_ptr<SigningProvider> DescriptorScriptPubKeyMan::GetSolvingProvider(const CScript& script) const

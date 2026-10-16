@@ -32,7 +32,6 @@ struct ChainstateLoadOptions {
     //! false will skip checks if cache is not big enough to run them, so may be
     //! helpful for running with a small cache.
     bool require_full_verification{true};
-    bool nameHistory{false};
     int64_t check_blocks{DEFAULT_CHECKBLOCKS};
     int64_t check_level{DEFAULT_CHECKLEVEL};
     std::function<void()> coins_error_cb;

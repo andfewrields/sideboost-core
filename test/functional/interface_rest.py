@@ -58,12 +58,9 @@ def filter_output_indices_by_value(vouts, value):
 class RESTTest (BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
-        self.extra_args = [["-rest", "-blockfilterindex=1", "-valueencoding=hex", "-txindex"], []]
+        self.extra_args = [["-rest", "-blockfilterindex=1", "-txindex"], []]
         # whitelist peers to speed up tx relay / mempool sync
         self.noban_tx_relay = True
-
-    def skip_test_if_missing_module(self):
-        self.skip_if_no_wallet()
 
     def test_rest_request(
             self,
@@ -651,63 +648,6 @@ class RESTTest (BitcoinTestFramework):
         assert_cache_control("/does-not-exist", no_store, status=404, req_type=None)
         assert_cache_control("/mempool/not-a-valid-path", no_store, status=400)
         assert_cache_control(f"/deploymentinfo/{non_existing_blockhash}", no_store, status=400)
-
-        # Test name handling.
-        self.log.info("Test the /name URI")
-        self.name_tests()
-
-    def name_tests(self):
-        """
-        Run REST tests specific to names.
-        """
-
-        # Start by registering a test name.
-        name = "d/some weird.name++"
-        binData = bytearray ([0, 1]).decode ("ascii")
-        value = "correct value\nwith newlines\nand binary: " + binData
-        hexValue = value.encode ('ascii').hex ()
-        newData = self.nodes[0].name_new(name)
-        self.generate (self.nodes[0], 10)
-        self.nodes[0].name_firstupdate(name, newData[1], newData[0], hexValue)
-        self.generate (self.nodes[0], 5)
-        nameData = self.nodes[0].name_show(name)
-        assert_equal(nameData['name_encoding'], 'ascii')
-        assert_equal(nameData['name'], name)
-        assert_equal(nameData['value_encoding'], 'hex')
-        assert_equal(nameData['value'], hexValue)
-        # The REST interface explicitly does not include the 'ismine' field
-        # that the RPC interface has.  Thus remove the field for the comparison
-        # below.
-        del nameData['ismine']
-
-        # Different variants of the encoded name that should all work.
-        variants = [urllib.parse.quote_plus(name), "d/some+weird.name%2b%2B"]
-
-        for encName in variants:
-            query = '/name/' + encName
-
-            # Query JSON data of the name.
-            data = self.test_rest_request (query, req_type=ReqType.JSON)
-            assert_equal(data, nameData)
-
-            # Query plain value.
-            res = self.test_rest_request (query, req_type=ReqType.BIN,
-                                          ret_type=RetType.BYTES)
-            assert_equal(res.decode("ascii"), value)
-
-            # Query hex value.
-            res = self.test_rest_request (query, req_type=ReqType.HEX,
-                                          ret_type=RetType.BYTES)
-            assert_equal(res.decode ('ascii'), hexValue + "\n")
-
-        # Check invalid encoded names.
-        invalid = ['%', '%2', '%2x', '%x2']
-        for encName in invalid:
-            query = '/name/' + encName
-            res = self.test_rest_request (query, status=http.client.BAD_REQUEST,
-                                          req_type=ReqType.BIN,
-                                          ret_type=RetType.OBJ)
-
 
 if __name__ == '__main__':
     RESTTest(__file__).main()

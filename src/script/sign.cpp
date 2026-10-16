@@ -1007,15 +1007,15 @@ bool IsSegWitOutput(const SigningProvider& provider, const CScript& script)
 {
     int version;
     valtype program;
-    if (script.IsWitnessProgram(true, version, program)) return true;
-    if (script.IsPayToScriptHash(true)) {
+    if (script.IsWitnessProgram(version, program)) return true;
+    if (script.IsPayToScriptHash()) {
         std::vector<valtype> solutions;
         auto whichtype = Solver(script, solutions);
         if (whichtype == TxoutType::SCRIPTHASH) {
             auto h160 = uint160(solutions[0]);
             CScript subscript;
             if (provider.GetCScript(CScriptID{h160}, subscript)) {
-                if (subscript.IsWitnessProgram(false, version, program)) return true;
+                if (subscript.IsWitnessProgram(version, program)) return true;
             }
         }
     }

@@ -53,7 +53,7 @@ CAmount GetDustThreshold(const CTxOut& txout, const CFeeRate& dustRelayFeeIn)
     // satisfaction is lower (a single BIP340 signature) but this computation was
     // kept to not further reduce the dust level.
     // See discussion in https://github.com/bitcoin/bitcoin/pull/22779 for details.
-    if (txout.scriptPubKey.IsWitnessProgram(true, witnessversion, witnessprogram)) {
+    if (txout.scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram)) {
         // sum the sizes of the parts of a transaction input
         // with 75% segwit discount applied to the script size.
         nSize += (32 + 4 + 1 + (107 / WITNESS_SCALE_FACTOR) + 4);
@@ -115,8 +115,7 @@ unsigned int GetMaxStandardTxSigOpsCost(const Consensus::Params& params)
 
 bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_datacarrier_bytes, bool permit_bare_multisig, const CFeeRate& dust_relay_fee, std::string& reason)
 {
-    if (!tx.IsNamecoin()
-        && (tx.version > TX_MAX_STANDARD_VERSION || tx.version < TX_MIN_STANDARD_VERSION)) {
+    if (tx.version > TX_MAX_STANDARD_VERSION || tx.version < TX_MIN_STANDARD_VERSION) {
         reason = "version";
         return false;
     }
@@ -302,7 +301,7 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
         }
 
         bool p2sh = false;
-        if (prevScript.IsPayToScriptHash(true)) {
+        if (prevScript.IsPayToScriptHash()) {
             std::vector <std::vector<unsigned char> > stack;
             // If the scriptPubKey is P2SH, we try to extract the redeemScript casually by converting the scriptSig
             // into a stack. We do not check IsPushOnly nor compare the hash as these will be done later anyway.
@@ -319,7 +318,7 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
         std::vector<unsigned char> witnessprogram;
 
         // Non-witness program must not be associated with any witness
-        if (!prevScript.IsWitnessProgram(true, witnessversion, witnessprogram))
+        if (!prevScript.IsWitnessProgram(witnessversion, witnessprogram))
             return false;
 
         // Check P2WSH standard limits
@@ -380,14 +379,14 @@ bool SpendsNonAnchorWitnessProg(const CTransaction& tx, const CCoinsViewCache& p
         const auto& prev_spk{prevouts.AccessCoin(txin.prevout).out.scriptPubKey};
 
         // Note this includes not-yet-defined witness programs.
-        if (prev_spk.IsWitnessProgram(true, version, program) && !prev_spk.IsPayToAnchor(version, program)) {
+        if (prev_spk.IsWitnessProgram(version, program) && !prev_spk.IsPayToAnchor(version, program)) {
             return true;
         }
 
         // For P2SH extract the redeem script and check if it spends a non-Taproot witness program. Note
         // this is fine to call EvalScript (as done in ValidateInputsStandardness/IsWitnessStandard) because this
         // function is only ever called after IsStandardTx, which checks the scriptsig is pushonly.
-        if (prev_spk.IsPayToScriptHash(true)) {
+        if (prev_spk.IsPayToScriptHash()) {
             // If EvalScript fails or results in an empty stack, the transaction is invalid by consensus.
             std::vector <std::vector<uint8_t>> stack;
             if (!EvalScript(stack, txin.scriptSig, SCRIPT_VERIFY_NONE, BaseSignatureChecker{}, SigVersion::BASE)
@@ -395,7 +394,7 @@ bool SpendsNonAnchorWitnessProg(const CTransaction& tx, const CCoinsViewCache& p
                 continue;
             }
             const CScript redeem_script{stack.back().begin(), stack.back().end()};
-            if (redeem_script.IsWitnessProgram(true, version, program)) {
+            if (redeem_script.IsWitnessProgram(version, program)) {
                 return true;
             }
         }

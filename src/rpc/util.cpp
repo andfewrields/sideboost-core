@@ -15,7 +15,6 @@
 #include <node/types.h>
 #include <outputtype.h>
 #include <pow.h>
-#include <rpc/names.h>
 #include <script/descriptor.h>
 #include <script/signingprovider.h>
 #include <script/solver.h>
@@ -1430,7 +1429,6 @@ std::vector<RPCResult> ScriptPubKeyDoc() {
              {RPCResult::Type::STR_HEX, "hex", "The raw output script bytes, hex-encoded"},
              {RPCResult::Type::STR, "address", /*optional=*/true, "The address (only if a well-defined address exists)"},
              {RPCResult::Type::STR, "type", "The type (one of: " + GetAllOutputTypes() + ")"},
-             NameOpResult,
          };
 }
 

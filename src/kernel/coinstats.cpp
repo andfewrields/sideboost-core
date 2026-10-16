@@ -43,21 +43,6 @@ uint64_t GetBogoSize(const CScript& script_pub_key)
            script_pub_key.size() /* scriptPubKey */;
 }
 
-void
-AddCoinValueToTotals (const Coin& coin, const int sign,
-                      std::optional<CAmount>& totalCoins,
-                      std::optional<CAmount>& totalNames)
-{
-  const CNameScript nameOp(coin.out.scriptPubKey);
-  if (nameOp.isNameOp ()) {
-    if (totalNames.has_value ())
-      totalNames = CheckedAdd (*totalNames, sign * coin.out.nValue);
-  } else {
-    if (totalCoins.has_value ())
-      totalCoins = CheckedAdd (*totalCoins, sign * coin.out.nValue);
-  }
-}
-
 template <typename T>
 static void TxOutSer(T& ss, const COutPoint& outpoint, const Coin& coin)
 {
@@ -115,7 +100,9 @@ static void ApplyStats(CCoinsStats& stats, const std::map<uint32_t, Coin>& outpu
     stats.nTransactions++;
     for (auto it = outputs.begin(); it != outputs.end(); ++it) {
         stats.nTransactionOutputs++;
-        AddCoinValueToTotals (it->second, 1, stats.nCoinAmount, stats.nNameAmount);
+        if (stats.total_amount.has_value()) {
+            stats.total_amount = CheckedAdd(*stats.total_amount, it->second.out.nValue);
+        }
         stats.nBogoSize += GetBogoSize(it->second.out.scriptPubKey);
     }
 }

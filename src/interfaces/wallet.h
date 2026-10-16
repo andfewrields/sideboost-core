@@ -11,7 +11,6 @@
 #include <consensus/amount.h>
 #include <interfaces/chain.h>
 #include <primitives/transaction.h>
-#include <script/names.h>
 #include <support/allocators/secure.h>
 #include <util/fs.h>
 #include <util/result.h>
@@ -389,8 +388,6 @@ struct WalletTx
     CAmount credit;
     CAmount debit;
     CAmount change;
-    std::optional<CNameScript> name_credit;
-    std::optional<CNameScript> name_debit;
     int64_t time;
     std::optional<std::string> from; // Deprecated
     std::optional<std::string> message; // Deprecated

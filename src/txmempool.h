@@ -14,7 +14,6 @@
 #include <kernel/mempool_limits.h>         // IWYU pragma: export
 #include <kernel/mempool_options.h>        // IWYU pragma: export
 #include <kernel/mempool_removal_reason.h> // IWYU pragma: export
-#include <names/mempool.h>
 #include <policy/feerate.h>
 #include <policy/packages.h>
 #include <primitives/transaction.h>
@@ -202,9 +201,6 @@ protected:
     // is added or removed from the mempool for any reason.
     mutable uint64_t m_sequence_number GUARDED_BY(cs){1};
 
-    /** Name-related mempool data.  */
-    CNameMemPool names;
-
     void trackPackageRemoved(const CFeeRate& rate) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     bool m_load_tried GUARDED_BY(cs){false};
@@ -292,9 +288,6 @@ private:
         return TxMempoolInfo{it->GetSharedTx(), it->GetTime(), it->GetFee(), it->GetTxSize(), it->GetModifiedFee() - it->GetFee()};
     }
 
-    /* removeConflicts is used in name_mempool_tests.  We make it public here
-       for this reason, compared to upstream.  */
-public:
     // Helper to remove all transactions that conflict with a given
     // transaction (used for transactions appearing in a block).
     void removeConflicts(const CTransaction& tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
@@ -321,7 +314,6 @@ public:
      * check does nothing.
      */
     void check(const CCoinsViewCache& active_coins_tip, int64_t spendheight, int coinbase_maturity) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
-    void checkNames(const CCoinsViewCache& active_coins_tip, int64_t spendheight) const EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
     /**
      * Remove a transaction from the mempool along with any descendants.
@@ -360,20 +352,6 @@ public:
      * the tx is not dependent on other mempool transactions to be included in a block.
      */
     bool HasNoInputsOf(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs);
-
-    /* Remove entries that conflict with name expirations / unexpirations.  */
-    inline void
-    removeUnexpireConflicts (const std::set<valtype>& unexpired)
-    {
-        LOCK(cs);
-        names.removeUnexpireConflicts (unexpired);
-    }
-    inline void
-    removeExpireConflicts (const std::set<valtype>& expired)
-    {
-        LOCK(cs);
-        names.removeExpireConflicts (expired);
-    }
 
     /** Affect CreateNewBlock prioritisation of transactions */
     void PrioritiseTransaction(const Txid& hash, const CAmount& nFeeDelta);
@@ -542,49 +520,6 @@ public:
     {
         LOCK(cs);
         return (mapTx.get<index_by_wtxid>().count(wtxid) != 0);
-    }
-
-    bool
-    registersName(const valtype& name) const EXCLUSIVE_LOCKS_REQUIRED(cs)
-
-    {
-        AssertLockHeld(cs);
-        return names.registersName(name);
-    }
-
-    bool
-    updatesName(const valtype& name) const EXCLUSIVE_LOCKS_REQUIRED(cs)
-    {
-        AssertLockHeld(cs);
-        return names.updatesName(name);
-    }
-
-    unsigned
-    pendingNameChainLength (const valtype& name) const EXCLUSIVE_LOCKS_REQUIRED(cs)
-    {
-        AssertLockHeld(cs);
-        return names.pendingChainLength(name);
-    }
-
-    COutPoint
-    lastNameOutput(const valtype& name) const EXCLUSIVE_LOCKS_REQUIRED(cs)
-    {
-        AssertLockHeld(cs);
-        return names.lastNameOutput(name);
-    }
-
-    /**
-     * Check if a tx can be added to it according to name criteria.
-     * (The non-name criteria are checked in main.cpp and not here, we
-     * leave it there for as little changes as possible.)
-     * @param tx The tx that should be added.
-     * @return True if it doesn't conflict.
-     */
-    inline bool
-    checkNameOps (const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs)
-    {
-        AssertLockHeld(cs);
-        return names.checkTx (tx);
     }
 
     const CTxMemPoolEntry* GetEntry(const Txid& txid) const LIFETIMEBOUND EXCLUSIVE_LOCKS_REQUIRED(cs);

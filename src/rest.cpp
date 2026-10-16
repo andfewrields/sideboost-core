@@ -15,8 +15,6 @@
 #include <httpserver.h>
 #include <index/blockfilterindex.h>
 #include <index/txindex.h>
-#include <names/common.h>
-#include <names/encoding.h>
 #include <node/blockstorage.h>
 #include <node/context.h>
 #include <node/transaction.h>
@@ -24,7 +22,6 @@
 #include <primitives/transaction.h>
 #include <rpc/blockchain.h>
 #include <rpc/mempool.h>
-#include <rpc/names.h>
 #include <rpc/protocol.h>
 #include <rpc/request.h>
 #include <rpc/server.h>
@@ -199,54 +196,6 @@ static bool CheckWarmup(HTTPRequest* req)
     std::string statusmessage;
     if (RPCIsInWarmup(&statusmessage))
          return RESTERR(req, HTTP_SERVICE_UNAVAILABLE, "Service temporarily unavailable: " + statusmessage);
-    return true;
-}
-
-static bool DecodeName(valtype& decoded, const std::string& encoded)
-{
-    decoded.clear();
-    for (std::string::const_iterator i = encoded.begin(); i != encoded.end(); ++i)
-    {
-        switch (*i)
-        {
-        case '+':
-            decoded.push_back(' ');
-            continue;
-
-        case '%':
-        {
-            if (i + 2 >= encoded.end())
-                return false;
-            const std::string hexStr(i + 1, i + 3);
-            i += 2;
-
-            int intChar = 0;
-            for (char c : hexStr)
-            {
-                intChar <<= 4;
-
-                if (c >= '0' && c <= '9')
-                    intChar += c - '0';
-                else
-                {
-                    c |= (1 << 5);
-                    if (c >= 'a' && c <= 'f')
-                        intChar += c - 'a' + 10;
-                    else
-                        return false;
-                }
-            }
-
-            decoded.push_back(static_cast<char>(intChar));
-            continue;
-        }
-
-        default:
-            decoded.push_back(*i);
-            continue;
-        }
-    }
-
     return true;
 }
 
@@ -1243,69 +1192,6 @@ static bool rest_blockhash_by_height(const std::any& context, HTTPRequest* req,
     }
 }
 
-static bool rest_name(const std::any& context, HTTPRequest* req, const std::string& strURIPart)
-{
-    if (!CheckWarmup(req))
-        return false;
-    std::string encodedName;
-    const RESTResponseFormat rf = ParseDataFormat(encodedName, strURIPart);
-
-    valtype plainName;
-    if (!DecodeName(plainName, encodedName))
-        return RESTERR(req, HTTP_BAD_REQUEST,
-                       "Invalid encoded name: " + encodedName);
-
-    ChainstateManager* maybe_chainman = GetChainman(context, req);
-    if (!maybe_chainman) return false;
-    ChainstateManager& chainman = *maybe_chainman;
-
-    CNameData data;
-    {
-        LOCK(cs_main);
-        if (!chainman.ActiveChainstate ().CoinsTip ().GetName(plainName, data))
-            return RESTERR(req, HTTP_NOT_FOUND,
-                           EncodeNameForMessage (plainName) + " not found");
-    }
-
-    switch (rf)
-    {
-    case RESTResponseFormat::BINARY:
-    {
-        const std::string val(data.getValue().begin(), data.getValue().end());
-        req->WriteHeader("Content-Type", "application/octet-stream");
-        req->WriteReply(HTTP_OK, val);
-        return true;
-    }
-
-    case RESTResponseFormat::HEX:
-    {
-        const valtype& binVal = data.getValue();
-        const std::string hexVal = HexStr(binVal) + "\n";
-        req->WriteHeader("Content-Type", "text/plain");
-        req->WriteReply(HTTP_OK, hexVal);
-        return true;
-    }
-
-    case RESTResponseFormat::JSON:
-    {
-        const UniValue NO_OPTIONS(UniValue::VOBJ);
-        const UniValue obj = getNameInfo(chainman, NO_OPTIONS, plainName, data);
-        const std::string strJSON = obj.write() + "\n";
-        req->WriteHeader("Content-Type", "application/json");
-        req->WriteReply(HTTP_OK, strJSON);
-        return true;
-    }
-
-    default:
-        return RESTERR(req, HTTP_NOT_FOUND,
-                       "output format not found (available: "
-                        + AvailableDataFormatsString() + ")");
-    }
-
-    // not reached
-    return true; // continue to process further HTTP reqs on this cxn
-}
-
 static const struct {
     const char* prefix;
     bool (*handler)(const std::any& context, HTTPRequest* req, const std::string& strReq);
@@ -1324,7 +1210,6 @@ static const struct {
     {"/rest/deploymentinfo", rest_deploymentinfo},
     {"/rest/blockhashbyheight/", rest_blockhash_by_height},
     {"/rest/spenttxouts/", rest_spent_txouts},
-    {"/rest/name/", rest_name},
 };
 
 void StartREST(const std::any& context)

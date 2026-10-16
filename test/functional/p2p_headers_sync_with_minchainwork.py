@@ -36,8 +36,6 @@ class RejectLowDifficultyHeadersTest(BitcoinTestFramework):
         self.num_nodes = 4
         # Node0 has no required chainwork; node1 requires 15 blocks on top of the genesis block; node2 requires 2047
         self.extra_args = [["-minimumchainwork=0x0", "-checkblockindex=0"], ["-minimumchainwork=0x1f", "-checkblockindex=0"], ["-minimumchainwork=0x1000", "-checkblockindex=0"], ["-minimumchainwork=0x1000", "-checkblockindex=0", "-whitelist=noban@127.0.0.1"]]
-        for a in self.extra_args:
-            a.append("-checknamedb=-1")
 
     def setup_network(self):
         self.setup_nodes()

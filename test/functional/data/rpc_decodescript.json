@@ -2,7 +2,7 @@
     [
         "5120eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         {
-            "asm": "OP_NAME_NEW eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "asm": "1 eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             "address": "ncrt1pamhwamhwamhwamhwamhwamhwamhwamhwamhwamhwamhwamhwamhqlpz448",
             "desc": "rawtr(eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee)#jk7c6kys",
             "type": "witness_v1_taproot"
@@ -11,7 +11,7 @@
     [
         "5102eeee",
         {
-            "asm": "OP_NAME_NEW eeee",
+            "asm": "1 -28398",
             "address": "ncrt1pamhqhj40xj",
             "desc": "addr(ncrt1pamhqhj40xj)#r7d68n9p",
             "type": "witness_unknown"

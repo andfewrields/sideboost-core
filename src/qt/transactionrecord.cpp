@@ -5,11 +5,8 @@
 #include <qt/transactionrecord.h>
 
 #include <chain.h>
-#include <chainparams.h>
 #include <interfaces/wallet.h>
 #include <key_io.h>
-#include <names/applications.h>
-#include <script/names.h>
 
 #include <cstdint>
 
@@ -49,61 +46,6 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
     }
 
     if (all_from_me || !any_from_me) {
-        std::optional<CNameScript> nNameCredit = wtx.name_credit;
-        std::optional<CNameScript> nNameDebit = wtx.name_debit;
-
-        TransactionRecord nameSub(hash, nTime, TransactionRecord::NameOp, "", 0, 0);
-
-        if(nNameCredit)
-        {
-            // TODO: Use friendly names based on namespaces
-            if(nNameCredit.value().isAnyUpdate())
-            {
-                if(nNameDebit)
-                {
-                    if(nNameCredit.value().getNameOp() == OP_NAME_FIRSTUPDATE)
-                    {
-                        nameSub.nameOpType = TransactionRecord::NameOpType::FirstUpdate;
-                    }
-                    else
-                    {
-                        // OP_NAME_UPDATE
-
-                        // Check if renewal (previous value is unchanged)
-                        if(nNameDebit.value().isAnyUpdate() && nNameDebit.value().getOpValue() == nNameCredit.value().getOpValue())
-                        {
-                            nameSub.nameOpType = TransactionRecord::NameOpType::Renew;
-                        }
-                        else
-                        {
-                            nameSub.nameOpType = TransactionRecord::NameOpType::Update;
-                        }
-                    }
-                }
-                else
-                {
-                    nameSub.nameOpType = TransactionRecord::NameOpType::Recv;
-                }
-
-                nameSub.nameNamespace = NamespaceFromName(nNameCredit.value().getOpName());
-                nameSub.address = DescFromName(nNameCredit.value().getOpName(), nameSub.nameNamespace);
-            }
-            else
-            {
-                nameSub.nameOpType = TransactionRecord::NameOpType::New;
-            }
-        }
-        else if(nNameDebit)
-        {
-            nameSub.nameOpType = TransactionRecord::NameOpType::Send;
-
-            if(nNameDebit.value().isAnyUpdate())
-            {
-                nameSub.nameNamespace = NamespaceFromName(nNameDebit.value().getOpName());
-                nameSub.address = DescFromName(nNameDebit.value().getOpName(), nameSub.nameNamespace);
-            }
-        }
-
         CAmount nTxFee = nDebit - wtx.tx->GetValueOut();
 
         for(unsigned int i = 0; i < wtx.tx->vout.size(); i++)
@@ -114,13 +56,6 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
                 // Change is only really possible if we're the sender
                 // Otherwise, someone just sent bitcoins to a change address, which should be shown
                 if (wtx.txout_is_change[i]) {
-                    // Name credits sent to change addresses should not be skipped
-                    if (nNameCredit && CNameScript::isNameScript(txout.scriptPubKey)) {
-                        nameSub.debit = nNet;
-                        nameSub.idx = i;
-                        parts.append(nameSub);
-                    }
-
                     continue;
                 }
 
@@ -130,12 +65,6 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
 
                 TransactionRecord sub(hash, nTime);
                 sub.idx = i;
-
-                if(nNameDebit && CNameScript::isNameScript(txout.scriptPubKey))
-                {
-                    nameSub.idx = sub.idx;
-                    sub = nameSub;
-                }
 
                 if (!std::get_if<CNoDestination>(&wtx.txout_address[i]))
                 {
@@ -151,11 +80,6 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
                 }
 
                 CAmount nValue = txout.nValue;
-                if (sub.type == TransactionRecord::NameOp)
-                {
-                    // 300k is just a "sufficiently high" height
-                    nValue -= Params().GetConsensus().rules->MinNameCoinAmount(300000);
-                }
                 /* Add fee to first output */
                 if (nTxFee > 0)
                 {
@@ -196,11 +120,6 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const interface
                 }
 
                 parts.append(sub);
-            }
-
-            if (nNameCredit) {
-                nameSub.debit = nNet;
-                parts.append(nameSub);
             }
         }
     } else {

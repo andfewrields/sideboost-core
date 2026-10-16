@@ -133,14 +133,6 @@ Keep the transaction memory pool below <n> megabytes (default: 300)
 Do not keep transactions in the mempool longer than <n> hours (default:
 336)
 .HP
-\fB\-namehashindex\fR
-.IP
-Maintain an index of name hashes to preimages (default: 0)
-.HP
-\fB\-namehistory\fR
-.IP
-Keep track of the full name history (default: 0)
-.HP
 \fB\-par=\fR<n>
 .IP
 Set the number of script verification threads (0 = auto, up to 15, <0 =
@@ -612,10 +604,6 @@ Set publish hash sequence message high water mark (default: 1000)
 .PP
 Debugging/Testing options:
 .HP
-\fB\-checknamedb\fR
-.IP
-Check name database for consistency every x blocks, \fB\-1\fR to disable
-.HP
 \fB\-debug=\fR<category>
 .IP
 Output debug and trace logging (default: \fB\-nodebug\fR, supplying <category>
@@ -624,7 +612,7 @@ or "all", output all debug logging. If <category> is 0 or "none",
 any other categories are ignored. Other valid values for
 <category> are: addrman, bench, blockstorage, cmpctblock, coindb,
 estimatefee, http, i2p, ipc, kernel, leveldb, mempool,
-mempoolrej, mining, names, net, privatebroadcast, proxy, prune,
+mempoolrej, mining, net, privatebroadcast, proxy, prune,
 qt, rand, reindex, rpc, scan, selectcoins, tor, txpackages,
 txreconciliation, validation, walletdb, zmq. This option can be
 specified multiple times to output multiple categories.
@@ -782,20 +770,6 @@ affects mining RPC clients, not IPC clients. (default: 8000).
 .PP
 RPC server options:
 .HP
-\fB\-allowexpired\fR
-.IP
-Throw error on expired names (default: 0)
-.HP
-\fB\-limitnamechains=\fR<n>
-.IP
-Limit pending chains of name operations for name_update to <n> (default:
-1)
-.HP
-\fB\-nameencoding=\fR<enc>
-.IP
-Sets the default encoding used for names in the RPC interface (default:
-ascii)
-.HP
 \fB\-rest\fR
 .IP
 Accept public REST requests (default: 0)
@@ -877,11 +851,6 @@ subject to empty whitelists.
 \fB\-server\fR
 .IP
 Accept command line and JSON\-RPC commands
-.HP
-\fB\-valueencoding=\fR<enc>
-.IP
-Sets the default encoding used for values in the RPC interface (default:
-ascii)
 .PP
 UI Options:
 .HP

@@ -51,14 +51,9 @@ public:
     bool HaveCoin(const COutPoint& outpoint) const override;
     uint256 GetBestBlock() const override;
     std::vector<uint256> GetHeadBlocks() const override;
-    bool GetName(const valtype &name, CNameData &data) const override;
-    bool GetNameHistory(const valtype &name, CNameHistory &data) const override;
-    bool GetNamesForHeight(unsigned nHeight, std::set<valtype>& data) const override;
-    CNameIterator* IterateNames() const override;
-    void BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash, const CNameCache& names) override;
+    void BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash) override;
     //! Get a cursor to iterate over the whole state.
     std::unique_ptr<CCoinsViewCursor> Cursor() const;
-    bool ValidateNameDB(const Chainstate& chainState, const std::function<void()>& interruption_point) const override;
 
     //! Whether an unsupported database format is used.
     bool NeedsUpgrade();

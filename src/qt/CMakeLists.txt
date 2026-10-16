@@ -165,22 +165,14 @@ if(ENABLE_WALLET)
       addresstablemodel.h
       askpassphrasedialog.cpp
       askpassphrasedialog.h
-      buynamespage.h
-      buynamespage.cpp
       coincontroldialog.cpp
       coincontroldialog.h
       coincontroltreewidget.cpp
       coincontroltreewidget.h
-      configurenamedialog.h
-      configurenamedialog.cpp
       createwalletdialog.cpp
       createwalletdialog.h
       editaddressdialog.cpp
       editaddressdialog.h
-      managenamespage.h
-      managenamespage.cpp
-      nametablemodel.h
-      nametablemodel.cpp
       openuridialog.cpp
       openuridialog.h
       overviewpage.cpp

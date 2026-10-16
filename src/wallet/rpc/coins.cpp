@@ -5,13 +5,9 @@
 #include <core_io.h>
 #include <hash.h>
 #include <key_io.h>
-#include <rpc/names.h>
-#include <rpc/server_util.h>
 #include <rpc/util.h>
-#include <script/names.h>
 #include <script/script.h>
 #include <util/moneystr.h>
-#include <validation.h>
 #include <wallet/coincontrol.h>
 #include <wallet/receive.h>
 #include <wallet/rpc/util.h>
@@ -481,8 +477,7 @@ RPCMethod listunspent()
                             {"maximumAmount", RPCArg::Type::AMOUNT, RPCArg::DefaultHint{"unlimited"}, "Maximum value of each UTXO in " + CURRENCY_UNIT + ""},
                             {"maximumCount", RPCArg::Type::NUM, RPCArg::DefaultHint{"unlimited"}, "Maximum number of UTXOs"},
                             {"minimumSumAmount", RPCArg::Type::AMOUNT, RPCArg::DefaultHint{"unlimited"}, "Minimum sum value of all UTXOs in " + CURRENCY_UNIT + ""},
-                            {"include_immature_coinbase", RPCArg::Type::BOOL, RPCArg::Default{false}, "Include immature coinbase UTXOs"},
-                            {"includeNames", RPCArg::Type::BOOL, RPCArg::DefaultHint{"false"}, "Include name outputs"},
+                            {"include_immature_coinbase", RPCArg::Type::BOOL, RPCArg::Default{false}, "Include immature coinbase UTXOs"}
                         },
                         RPCArgOptions{.oneline_description="query_options"}},
                 },
@@ -494,7 +489,6 @@ RPCMethod listunspent()
                             {RPCResult::Type::STR_HEX, "txid", "the transaction id"},
                             {RPCResult::Type::NUM, "vout", "the vout value"},
                             {RPCResult::Type::STR, "address", /*optional=*/true, "the address"},
-                            NameOpResult,
                             {RPCResult::Type::STR, "label", /*optional=*/true, "The associated label, or \"\" for the default label"},
                             {RPCResult::Type::STR_HEX, "scriptPubKey", "the output script"},
                             {RPCResult::Type::STR_AMOUNT, "amount", "the transaction output amount in " + CURRENCY_UNIT},
@@ -528,8 +522,6 @@ RPCMethod listunspent()
 {
     const std::shared_ptr<const CWallet> pwallet = GetWalletForJSONRPCRequest(request);
     if (!pwallet) return UniValue::VNULL;
-
-    const auto& chainman = EnsureChainman(EnsureAnyNodeContext(request));
 
     int nMinDepth = 1;
     if (!request.params[0].isNull()) {
@@ -573,8 +565,7 @@ RPCMethod listunspent()
                 {"maximumAmount", UniValueType()},
                 {"minimumSumAmount", UniValueType()},
                 {"maximumCount", UniValueType(UniValue::VNUM)},
-                {"include_immature_coinbase", UniValueType(UniValue::VBOOL)},
-                {"includeNames", UniValueType(UniValue::VBOOL)},
+                {"include_immature_coinbase", UniValueType(UniValue::VBOOL)}
             },
             true, true);
 
@@ -592,14 +583,6 @@ RPCMethod listunspent()
 
         if (options.exists("include_immature_coinbase")) {
             filter_coins.include_immature_coinbase = options["include_immature_coinbase"].get_bool();
-        }
-
-        if (options.exists("includeNames") && options["includeNames"].get_bool()) {
-            /* Retrieve and store "current" expiration depth.  We use that later
-               to determine, based on confirmations, whether or not names
-               are expired.  */
-            filter_coins.name_max_depth = Params().GetConsensus()
-                .rules->NameExpirationDepth(chainman.ActiveHeight());
         }
     }
 
@@ -637,10 +620,6 @@ RPCMethod listunspent()
         entry.pushKV("txid", out.outpoint.hash.GetHex());
         entry.pushKV("vout", out.outpoint.n);
 
-        const CNameScript nameOp(scriptPubKey);
-        if (nameOp.isNameOp())
-            entry.pushKV("nameOp", NameOpToUniv(nameOp));
-
         if (fValidAddress) {
             entry.pushKV("address", EncodeDestination(address));
 
@@ -651,14 +630,14 @@ RPCMethod listunspent()
 
             std::unique_ptr<SigningProvider> provider = pwallet->GetSolvingProvider(scriptPubKey);
             if (provider) {
-                if (scriptPubKey.IsPayToScriptHash(true)) {
+                if (scriptPubKey.IsPayToScriptHash()) {
                     const CScriptID hash = ToScriptID(std::get<ScriptHash>(address));
                     CScript redeemScript;
                     if (provider->GetCScript(hash, redeemScript)) {
                         entry.pushKV("redeemScript", HexStr(redeemScript));
                         // Now check if the redeemScript is actually a P2WSH script
                         CTxDestination witness_destination;
-                        if (redeemScript.IsPayToWitnessScriptHash(false)) {
+                        if (redeemScript.IsPayToWitnessScriptHash()) {
                             bool extracted = ExtractDestination(redeemScript, witness_destination);
                             CHECK_NONFATAL(extracted);
                             // Also return the witness script
@@ -670,7 +649,7 @@ RPCMethod listunspent()
                             }
                         }
                     }
-                } else if (scriptPubKey.IsPayToWitnessScriptHash(true)) {
+                } else if (scriptPubKey.IsPayToWitnessScriptHash()) {
                     const WitnessV0ScriptHash& whash = std::get<WitnessV0ScriptHash>(address);
                     CScriptID id{RIPEMD160(whash)};
                     CScript witnessScript;

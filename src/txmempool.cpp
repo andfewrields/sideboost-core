@@ -174,8 +174,7 @@ static CTxMemPool::Options&& Flatten(CTxMemPool::Options&& opts, bilingual_str& 
 }
 
 CTxMemPool::CTxMemPool(Options opts, bilingual_str& error)
-    : names{*this},
-      m_opts{Flatten(std::move(opts), error)}
+    : m_opts{Flatten(std::move(opts), error)}
 {
     m_txgraph = MakeTxGraph(
         /*max_cluster_count=*/m_opts.limits.cluster_count,
@@ -251,8 +250,6 @@ void CTxMemPool::addNewTransaction(CTxMemPool::txiter newit)
     totalTxSize += entry.GetTxSize();
     m_total_fee += entry.GetFee();
 
-    names.addUnchecked (entry);
-
     txns_randomized.emplace_back(tx.GetWitnessHash(), newit);
     newit->idx_randomized = txns_randomized.size() - 1;
 
@@ -265,8 +262,6 @@ void CTxMemPool::addNewTransaction(CTxMemPool::txiter newit)
 
 void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
 {
-    names.remove (*it);
-
     // We increment mempool sequence value no matter removal reason
     // even if not directly reported below.
     uint64_t mempool_sequence = GetAndIncrementSequence();
@@ -405,9 +400,6 @@ void CTxMemPool::removeConflicts(const CTransaction &tx)
             }
         }
     }
-
-    /* Remove conflicting name registrations.  */
-    names.removeConflicts (tx);
 }
 
 std::vector<RemovedMempoolTransactionInfo> CTxMemPool::removeForBlock(const std::vector<CTransactionRef>& vtx)
@@ -539,7 +531,7 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         TxValidationState dummy_state; // Not used. CheckTxInputs() should always pass
         CAmount txfee = 0;
         assert(!tx.IsCoinBase());
-        assert(Consensus::CheckTxInputs(tx, dummy_state, mempoolDuplicate, spendheight, coinbase_maturity, SCRIPT_VERIFY_NAMES_MEMPOOL, txfee));
+        assert(Consensus::CheckTxInputs(tx, dummy_state, mempoolDuplicate, spendheight, coinbase_maturity, txfee));
         for (const auto& input: tx.vin) mempoolDuplicate.SpendCoin(input.prevout);
         AddCoins(mempoolDuplicate, tx, std::numeric_limits<int>::max());
     }
@@ -556,13 +548,6 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
     assert(diagram.back().fee == check_total_modified_fee);
     assert(diagram.back().size == check_total_adjusted_weight);
     assert(innerUsage == cachedInnerUsage);
-
-    checkNames(active_coins_tip, spendheight);
-}
-
-void CTxMemPool::checkNames(const CCoinsViewCache& active_coins_tip, int64_t spendheight) const
-{
-    names.check (active_coins_tip, spendheight);
 }
 
 std::vector<CTxMemPool::txiter> CTxMemPool::ExtractBestByMiningScoreWithTopology(std::vector<Wtxid>& wtxids, size_t n_to_sort) const

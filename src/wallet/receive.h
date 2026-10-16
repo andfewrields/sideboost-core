@@ -24,11 +24,6 @@ bool OutputIsChange(const CWallet& wallet, const CTxOut& txout) EXCLUSIVE_LOCKS_
 CAmount OutputGetChange(const CWallet& wallet, const CTxOut& txout) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
 CAmount TxGetChange(const CWallet& wallet, const CTransaction& tx);
 
-std::optional<CNameScript> GetNameCredit(const CWallet& wallet, const CTxOut& txout);
-std::optional<CNameScript> GetNameCredit(const CWallet& wallet, const CTransaction& tx);
-std::optional<CNameScript> TxGetNameCredit(const CWallet& wallet, const CWalletTx& wtx);
-std::optional<CNameScript> TxGetNameDebit(const CWallet& wallet, const CWalletTx& wtx);
-
 CAmount CachedTxGetCredit(const CWallet& wallet, const CWalletTx& wtx, bool avoid_reuse)
     EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
 CAmount CachedTxGetDebit(const CWallet& wallet, const CWalletTx& wtx, bool avoid_reuse);
@@ -36,7 +31,6 @@ CAmount CachedTxGetChange(const CWallet& wallet, const CWalletTx& wtx);
 struct COutputEntry
 {
     CTxDestination destination;
-    std::string nameOp;
     CAmount amount;
     int vout;
 };

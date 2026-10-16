@@ -16,7 +16,6 @@ enum class MemPoolRemovalReason {
     REORG,       //!< Removed for reorganization
     BLOCK,       //!< Removed for block
     CONFLICT,    //!< Removed for conflict with in-block transaction
-    NAME_CONFLICT, //! Removed tue to a name-operation conflict
     REPLACED,    //!< Removed for replacement
 };
 

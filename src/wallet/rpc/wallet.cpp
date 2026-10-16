@@ -1136,16 +1136,6 @@ RPCMethod abortrescan();
 // auxpow
 RPCMethod getauxblock();
 
-// name
-RPCMethod name_list();
-RPCMethod name_new();
-RPCMethod name_firstupdate();
-RPCMethod name_update();
-RPCMethod queuerawtransaction();
-RPCMethod dequeuetransaction();
-RPCMethod listqueuedtransactions();
-RPCMethod sendtoname();
-
 std::span<const CRPCCommand> GetWalletRPCCommands()
 {
     static const CRPCCommand commands[]{
@@ -1213,16 +1203,6 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
 
         /** Auxpow wallet functions */
         {"mining", &getauxblock},
-
-        // Name-related wallet calls.
-        {"names", &name_list},
-        {"names", &name_new},
-        {"names", &name_firstupdate},
-        {"names", &name_update},
-        {"names", &queuerawtransaction},
-        {"names", &dequeuetransaction},
-        {"names", &listqueuedtransactions},
-        {"names", &sendtoname},
     };
     return commands;
 }

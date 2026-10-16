@@ -1352,7 +1352,7 @@ BOOST_AUTO_TEST_CASE(SelectCoins_effective_value_test)
     cc.Select(output.outpoint).SetTxOut(output.txout);
 
     LOCK(wallet->cs_wallet);
-    const auto preset_inputs = *Assert(FetchSelectedInputs(*wallet, nullptr, cc, cs_params));
+    const auto preset_inputs = *Assert(FetchSelectedInputs(*wallet, cc, cs_params));
     available_coins.Erase({available_coins.coins[OutputType::BECH32].begin()->outpoint});
 
     const auto result = SelectCoins(*wallet, available_coins, preset_inputs, target, cc, cs_params);

@@ -8,8 +8,6 @@
 #include <script/descriptor.h>
 #include <util/fs.h>
 
-#include <map>
-#include <string>
 #include <vector>
 
 namespace wallet {
@@ -151,7 +149,5 @@ public:
 
 WalletDescriptor GenerateWalletDescriptor(const CExtPubKey& master_key, const OutputType& output_type, bool internal);
 } // namespace wallet
-
-typedef std::map<std::string, std::string> mapValue_t;
 
 #endif // BITCOIN_WALLET_WALLETUTIL_H

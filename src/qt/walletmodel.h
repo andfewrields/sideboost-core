@@ -7,7 +7,6 @@
 
 #include <key.h>
 
-#include <names/common.h>
 #include <qt/walletmodeltransaction.h>
 
 #include <interfaces/wallet.h>
@@ -25,7 +24,6 @@ class ClientModel;
 class OptionsModel;
 class PlatformStyle;
 class RecentRequestsTableModel;
-class NameTableModel;
 class SendCoinsRecipient;
 class TransactionTableModel;
 class WalletModelTransaction;
@@ -74,11 +72,10 @@ public:
         Unlocked      // wallet->HasEncryptionKeys() && !wallet->IsLocked()
     };
 
-    OptionsModel *getOptionsModel() const;
-    AddressTableModel *getAddressTableModel() const;
-    TransactionTableModel *getTransactionTableModel() const;
-    NameTableModel *getNameTableModel() const;
-    RecentRequestsTableModel *getRecentRequestsTableModel() const;
+    OptionsModel* getOptionsModel() const;
+    AddressTableModel* getAddressTableModel() const;
+    TransactionTableModel* getTransactionTableModel() const;
+    RecentRequestsTableModel* getRecentRequestsTableModel() const;
 
     EncryptionStatus getEncryptionStatus() const;
 
@@ -178,7 +175,6 @@ private:
     AddressTableModel* addressTableModel{nullptr};
     TransactionTableModel* transactionTableModel{nullptr};
     RecentRequestsTableModel* recentRequestsTableModel{nullptr};
-    NameTableModel *nameTableModel{nullptr};
 
     // Cache some values to be able to detect changes
     interfaces::WalletBalances m_cached_balances;

@@ -12,7 +12,6 @@
 #include <policy/settings.h>
 #include <primitives/transaction.h>
 #include <txgraph.h>
-#include <script/names.h>
 #include <util/overflow.h>
 #include <util/time.h>
 
@@ -83,9 +82,6 @@ private:
     mutable CAmount m_modified_fee; //!< Used for determining the priority of the transaction for mining in a block
     mutable LockPoints lockPoints;  //!< Track the height and time at which tx was final
 
-    /* Cache name operation (if any) performed by this tx.  */
-    CNameScript nameOp;
-
 public:
     virtual ~CTxMemPoolEntry() = default;
     CTxMemPoolEntry(const CTransactionRef& tx, CAmount fee,
@@ -102,23 +98,7 @@ public:
           spendsCoinbase{spends_coinbase},
           sigOpCost{sigops_cost},
           m_modified_fee{nFee},
-          lockPoints{lp}
-    {
-        if (tx->IsNamecoin())
-        {
-            for (const auto& txOut : tx->vout)
-            {
-                const CNameScript curNameOp(txOut.scriptPubKey);
-                if (!curNameOp.isNameOp())
-                    continue;
-
-                assert(!nameOp.isNameOp());
-                nameOp = curNameOp;
-            }
-
-            assert(nameOp.isNameOp());
-        }
-    }
+          lockPoints{lp} {}
 
     CTxMemPoolEntry& operator=(const CTxMemPoolEntry&) = delete;
     CTxMemPoolEntry(CTxMemPoolEntry&&) = default;
@@ -154,32 +134,6 @@ public:
     }
 
     bool GetSpendsCoinbase() const { return spendsCoinbase; }
-
-    inline bool
-    isNameNew() const
-    {
-        return nameOp.isNameOp() && nameOp.getNameOp() == OP_NAME_NEW;
-    }
-    inline bool
-    isNameRegistration() const
-    {
-        return nameOp.isNameOp() && nameOp.getNameOp() == OP_NAME_FIRSTUPDATE;
-    }
-    inline bool
-    isNameUpdate() const
-    {
-        return nameOp.isNameOp() && nameOp.getNameOp() == OP_NAME_UPDATE;
-    }
-    inline const valtype&
-    getNameNewHash() const
-    {
-        return nameOp.getOpHash();
-    }
-    inline const valtype&
-    getName() const
-    {
-        return nameOp.getOpName();
-    }
 
     mutable size_t idx_randomized; //!< Index in mempool's txns_randomized
 };

@@ -7,7 +7,6 @@
 #define BITCOIN_WALLET_WALLETDB_H
 
 #include <key.h>
-#include <names/common.h>
 #include <primitives/transaction.h>
 #include <primitives/transaction_identifier.h>
 #include <script/sign.h>
@@ -271,9 +270,6 @@ public:
 
     bool WriteActiveScriptPubKeyMan(uint8_t type, const uint256& id, bool internal);
     bool EraseActiveScriptPubKeyMan(uint8_t type, bool internal);
-
-    bool WriteQueuedTransaction(const Txid& txid, const CMutableTransaction& tx);
-    bool EraseQueuedTransaction(const Txid& txid);
 
     DBErrors LoadWallet(CWallet* pwallet);
 

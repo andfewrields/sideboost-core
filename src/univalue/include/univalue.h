@@ -207,12 +207,4 @@ static inline bool json_isspace(int ch)
 
 extern const UniValue NullUniValue;
 
-/**
- * Verifies whether a given string consists only of valid UTF-8 code points
- * as per the JSONUTF8StringFilter.
- *
- * This method is exposed for Namecoin to validate names/values.
- */
-bool IsValidUtf8String(const std::string& str);
-
 #endif // BITCOIN_UNIVALUE_INCLUDE_UNIVALUE_H

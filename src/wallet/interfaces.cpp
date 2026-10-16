@@ -11,7 +11,6 @@
 #include <node/context.h>
 #include <node/types.h>
 #include <primitives/transaction.h>
-#include <rpc/names.h>
 #include <rpc/server.h>
 #include <scheduler.h>
 #include <support/allocators/secure.h>
@@ -79,8 +78,6 @@ WalletTx MakeWalletTx(CWallet& wallet, const CWalletTx& wtx)
     result.credit = CachedTxGetCredit(wallet, wtx, /*avoid_reuse=*/true);
     result.debit = CachedTxGetDebit(wallet, wtx, /*avoid_reuse=*/true);
     result.change = CachedTxGetChange(wallet, wtx);
-    result.name_credit = TxGetNameCredit(wallet, wtx);
-    result.name_debit = TxGetNameDebit(wallet, wtx);
     result.time = wtx.GetTxTime();
     result.from = wtx.m_from;
     result.message = wtx.m_message;
@@ -269,7 +266,7 @@ public:
         std::optional<unsigned int> change_pos) override
     {
         LOCK(m_wallet->cs_wallet);
-        return CreateTransaction(*m_wallet, recipients, nullptr, change_pos, coin_control, sign);
+        return CreateTransaction(*m_wallet, recipients, change_pos, coin_control, sign);
     }
     void commitTransaction(CTransactionRef tx, const std::vector<std::string>& messages) override
     {
@@ -408,7 +405,7 @@ public:
             FastRandomContext rng{};
             CoinSelectionParams params(rng);
             // Note: for now, swallow any error.
-            if (auto res = FetchSelectedInputs(*m_wallet, nullptr, coin_control, params)) {
+            if (auto res = FetchSelectedInputs(*m_wallet, coin_control, params)) {
                 total_amount += res->GetTotalAmount();
             }
         }
@@ -547,9 +544,9 @@ public:
     ~WalletLoaderImpl() override { stop(); }
 
     //! ChainClient methods
-    void registerRpcs(std::span<const CRPCCommand> commands)
+    void registerRpcs() override
     {
-        for (const CRPCCommand& command : commands) {
+        for (const CRPCCommand& command : GetWalletRPCCommands()) {
             m_rpc_commands.emplace_back(command.category, command.name, [this, &command](const JSONRPCRequest& request, UniValue& result, bool last_handler) {
                 JSONRPCRequest wallet_request = request;
                 wallet_request.context = &m_context;
@@ -561,14 +558,6 @@ public:
             m_rpc_commands.back().metadata_fn = command.metadata_fn;
             m_rpc_handlers.emplace_back(m_context.chain->handleRpc(m_rpc_commands.back()));
         }
-    }
-    void registerRpcs() override
-    {
-        registerRpcs(GetWalletRPCCommands());
-        /* Many of the non-wallet Namecoin RPCs can use a wallet optionally,
-           for the "ismine" field.  Thus if a wallet is available, we register
-           handlers for them with the wallet context.  */
-        registerRpcs(GetNameRPCCommands());
     }
     bool verify() override { return VerifyWallets(m_context); }
     bool load() override { return LoadWallets(m_context); }

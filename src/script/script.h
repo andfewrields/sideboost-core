@@ -85,11 +85,8 @@ enum opcodetype
     OP_RESERVED = 0x50,
     OP_1 = 0x51,
     OP_TRUE=OP_1,
-    OP_NAME_NEW=OP_1,
     OP_2 = 0x52,
-    OP_NAME_FIRSTUPDATE=OP_2,
     OP_3 = 0x53,
-    OP_NAME_UPDATE=OP_3,
     OP_4 = 0x54,
     OP_5 = 0x55,
     OP_6 = 0x56,
@@ -548,16 +545,11 @@ public:
      */
     static bool IsPayToAnchor(int version, const std::vector<unsigned char>& program);
 
-    /**
-     * Check if the script is P2SH.  Optionally, strip a possible
-     * name prefix before performing the strict check from Bitcoin.
-     * @param allowNames Strip name scripts before checking?
-     */
-    bool IsPayToScriptHash(bool allowNames) const;
-    bool IsPayToWitnessScriptHash(bool allowNames) const;
-    bool IsWitnessProgram(bool allowNames, int& version, std::vector<unsigned char>& program) const;
+    bool IsPayToScriptHash() const;
+    bool IsPayToWitnessScriptHash() const;
+    bool IsWitnessProgram(int& version, std::vector<unsigned char>& program) const;
 
-    bool IsPayToTaproot(bool allowNames) const;
+    bool IsPayToTaproot() const;
 
     /** Called by IsStandardTx and P2SH/BIP62 VerifyScript (which makes it consensus-critical). */
     bool IsPushOnly(const_iterator pc) const;

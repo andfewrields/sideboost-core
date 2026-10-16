@@ -27,7 +27,6 @@
 #include <index/base.h>
 #include <index/blockfilterindex.h>
 #include <index/coinstatsindex.h>
-#include <index/namehash.h>
 #include <index/txindex.h>
 #include <index/txospenderindex.h>
 #include <init/common.h>
@@ -46,8 +45,6 @@
 #include <key.h>
 #include <logging.h>
 #include <mapport.h>
-#include <names/encoding.h>
-#include <names/mempool.h>
 #include <net.h>
 #include <net_permissions.h>
 #include <net_processing.h>
@@ -76,7 +73,6 @@
 #include <policy/settings.h>
 #include <protocol.h>
 #include <random.h>
-#include <rpc/names.h>
 #include <rpc/register.h>
 #include <rpc/server.h>
 #include <rpc/util.h>
@@ -393,7 +389,6 @@ void Shutdown(NodeContext& node)
     for (auto* index : node.indexes) index->Stop();
     if (g_txindex) g_txindex.reset();
     if (g_txospenderindex) g_txospenderindex.reset();
-    if (g_name_hash_index) g_name_hash_index.reset();
     if (g_coin_stats_index) g_coin_stats_index.reset();
     DestroyAllBlockFilterIndexes();
     node.indexes.clear(); // all instances are nullptr now
@@ -560,8 +555,6 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
                  strprintf("Maintain an index of compact filters by block (default: %s, values: %s).", DEFAULT_BLOCKFILTERINDEX, ListBlockFilterTypes()) +
                  " If <type> is not supplied or if <type> = 1, indexes for all known types are enabled.",
                  ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
-    gArgs.AddArg("-namehistory", strprintf("Keep track of the full name history (default: %u)", 0), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
-    gArgs.AddArg("-namehashindex", strprintf("Maintain an index of name hashes to preimages (default: %u)", DEFAULT_NAMEHASHINDEX), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
 
     argsman.AddArg("-addnode=<ip>", strprintf("Add a node to connect to and attempt to keep the connection open (see the addnode RPC help for more info). This option can be specified multiple times to add multiple nodes; connections are limited to %u at a time and are counted separately from the -maxconnections limit.", MAX_ADDNODE_CONNECTIONS), ArgsManager::ALLOW_ANY | ArgsManager::NETWORK_ONLY, OptionsCategory::CONNECTION);
     argsman.AddArg("-asmap=<file>", strprintf("Specify asn mapping used for bucketing of the peers. Relative paths will be prefixed by the net-specific datadir location.%s",
@@ -759,12 +752,6 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     if (can_listen_ipc) {
         argsman.AddArg("-ipcbind=<address>", "Bind to Unix socket address and listen for incoming connections. Valid address values are \"unix\" to listen on the default path, <datadir>/node.sock, or \"unix:/custom/path\" to specify a custom path. Can be specified multiple times to listen on multiple paths. Default behavior is not to listen on any path. If relative paths are specified, they are interpreted relative to the network data directory. If paths include any parent directory components and the parent directories do not exist, they will be created. Enabling this gives local processes that can access the socket unauthenticated RPC access, so it's important to choose a path with secure permissions if customizing this.", ArgsManager::ALLOW_ANY, OptionsCategory::IPC);
     }
-
-    gArgs.AddArg("-nameencoding=<enc>", strprintf("Sets the default encoding used for names in the RPC interface (default: %s)", EncodingToString(DEFAULT_NAME_ENCODING)), ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
-    gArgs.AddArg("-valueencoding=<enc>", strprintf("Sets the default encoding used for values in the RPC interface (default: %s)", EncodingToString(DEFAULT_VALUE_ENCODING)), ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
-    gArgs.AddArg("-limitnamechains=<n>", strprintf("Limit pending chains of name operations for name_update to <n> (default: %u)", DEFAULT_NAME_CHAIN_LIMIT), ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
-    gArgs.AddArg("-allowexpired", strprintf("Throw error on expired names (default: %u)", DEFAULT_ALLOWEXPIRED), ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
-    gArgs.AddArg("-checknamedb", "Check name database for consistency every x blocks, -1 to disable", ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
 
 #if HAVE_DECL_FORK
     argsman.AddArg("-daemon", strprintf("Run in the background as a daemon and accept commands (default: %d)", DEFAULT_DAEMON), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
@@ -1047,8 +1034,6 @@ bool AppInitParameterInteraction(const ArgsManager& args)
             return InitError(_("Prune mode is incompatible with -txindex."));
         if (args.GetBoolArg("-txospenderindex", DEFAULT_TXOSPENDERINDEX))
             return InitError(_("Prune mode is incompatible with -txospenderindex."));
-        if (gArgs.GetBoolArg("-namehashindex", DEFAULT_NAMEHASHINDEX))
-            return InitError(_("Prune mode is incompatible with -namehashindex."));
         if (args.GetBoolArg("-reindex-chainstate", false)) {
             return InitError(_("Prune mode is incompatible with -reindex-chainstate. Use full -reindex instead."));
         }
@@ -1466,12 +1451,10 @@ static ChainstateLoadResult InitAndLoadChainstate(
             }
         }
     };
-    fNameHistory = args.GetBoolArg("-namehistory", false);
     node::ChainstateLoadOptions options;
     options.mempool = Assert(node.mempool.get());
     options.wipe_chainstate_db = do_reindex || do_reindex_chainstate;
     options.prune = chainman.m_blockman.IsPruneMode();
-    options.nameHistory = fNameHistory;
     options.check_blocks = args.GetIntArg("-checkblocks", DEFAULT_CHECKBLOCKS);
     options.check_level = args.GetIntArg("-checklevel", DEFAULT_CHECKLEVEL);
     options.require_full_verification = args.IsArgSet("-checkblocks") || args.IsArgSet("-checklevel");
@@ -1607,11 +1590,6 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 #ifdef ENABLE_ZMQ
     RegisterZMQRPCCommands(tableRPC);
 #endif
-    /* A wallet, if available, also installs handlers for the name RPC commands
-       with a wallet context set (for "ismine").  The first matching handler
-       is used, so we want the name RPCs without wallet installed last as
-       fallback only.  */
-    RegisterNameRPCCommands(tableRPC);
 
     // Check port numbers
     if (!CheckHostPortOptions(args)) return false;
@@ -1911,9 +1889,6 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     if (args.GetBoolArg("-txospenderindex", DEFAULT_TXOSPENDERINDEX)) {
         LogInfo("* Using %.1f MiB for transaction output spender index database", index_cache_sizes.txospender_index / double(1_MiB));
     }
-    if (gArgs.GetBoolArg("-namehashindex", DEFAULT_NAMEHASHINDEX)) {
-        LogInfo("* Using %.1f MiB for name hash database\n", index_cache_sizes.name_hash_index * (1.0 / 1024 / 1024));
-    }
     for (BlockFilterType filter_type : g_enabled_filter_types) {
         LogInfo("* Using %.1f MiB for %s block filter index database",
                   index_cache_sizes.filter_index / double(1_MiB), BlockFilterTypeName(filter_type));
@@ -2003,10 +1978,6 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     if (args.GetBoolArg("-txospenderindex", DEFAULT_TXOSPENDERINDEX)) {
         g_txospenderindex = std::make_unique<TxoSpenderIndex>(interfaces::MakeChain(node), index_cache_sizes.txospender_index, false, do_reindex);
         node.indexes.emplace_back(g_txospenderindex.get());
-    }
-    if (gArgs.GetBoolArg("-namehashindex", DEFAULT_NAMEHASHINDEX)) {
-        g_name_hash_index = std::make_unique<NameHashIndex>(interfaces::MakeChain(node), index_cache_sizes.name_hash_index, false, do_reindex);
-        node.indexes.emplace_back(g_name_hash_index.get());
     }
 
     for (const auto& filter_type : g_enabled_filter_types) {

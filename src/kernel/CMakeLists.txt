@@ -31,10 +31,6 @@ add_library(namecoinkernel
   ../flatfile.cpp
   ../hash.cpp
   ../logging.cpp
-  ../names/common.cpp
-  ../names/encoding.cpp
-  ../names/main.cpp
-  ../names/mempool.cpp
   ../node/blockstorage.cpp
   ../node/chainstate.cpp
   ../node/utxo_snapshot.cpp
@@ -52,7 +48,6 @@ add_library(namecoinkernel
   ../random.cpp
   ../randomenv.cpp
   ../script/interpreter.cpp
-  ../script/names.cpp
   ../script/script.cpp
   ../script/script_error.cpp
   ../script/sigcache.cpp

@@ -8,17 +8,14 @@
 #include <coins.h>
 #include <dbwrapper.h>
 #include <logging/timer.h>
-#include <names/encoding.h>
 #include <primitives/transaction.h>
 #include <random.h>
 #include <serialize.h>
-#include <script/names.h>
 #include <uint256.h>
 #include <util/byte_units.h>
 #include <util/log.h>
 #include <util/threadnames.h>
 #include <util/vector.h>
-#include <validation.h>
 
 #include <cassert>
 #include <chrono>
@@ -29,11 +26,6 @@
 #include <utility>
 
 static constexpr uint8_t DB_COIN{'C'};
-
-static constexpr uint8_t DB_NAME{'n'};
-static constexpr uint8_t DB_NAME_HISTORY{'h'};
-static constexpr uint8_t DB_NAME_EXPIRY{'x'};
-
 static constexpr uint8_t DB_BEST_BLOCK{'B'};
 static constexpr uint8_t DB_HEAD_BLOCKS{'H'};
 // Keys used in previous version that might still be found in the DB:
@@ -48,8 +40,7 @@ bool CCoinsViewDB::NeedsUpgrade()
     // DB_COINS was deprecated in v0.15.0, commit
     // 1088b02f0ccd7358d2b7076bb9e122d59d502d02
     cursor->Seek(std::make_pair(DB_COINS, uint256{}));
-    std::pair<uint8_t, uint256> key;
-    return cursor->Valid() && cursor->GetKey(key) && key.first == DB_COINS;
+    return cursor->Valid();
 }
 
 namespace {
@@ -141,104 +132,7 @@ std::vector<uint256> CCoinsViewDB::GetHeadBlocks() const {
     return vhashHeadBlocks;
 }
 
-bool CCoinsViewDB::GetName(const valtype &name, CNameData& data) const {
-    return m_db->Read(std::make_pair(DB_NAME, name), data);
-}
-
-bool CCoinsViewDB::GetNameHistory(const valtype &name, CNameHistory& data) const {
-    assert (fNameHistory);
-    return m_db->Read(std::make_pair(DB_NAME_HISTORY, name), data);
-}
-
-bool CCoinsViewDB::GetNamesForHeight(unsigned nHeight, std::set<valtype>& names) const {
-    names.clear();
-
-    /* It seems that there are no "const iterators" for LevelDB.  Since we
-       only need read operations on it, use a const-cast to get around
-       that restriction.  */
-    std::unique_ptr<CDBIterator> pcursor(const_cast<CDBWrapper*>(m_db.get())->NewIterator());
-
-    const CNameCache::ExpireEntry seekEntry(nHeight, valtype ());
-    pcursor->Seek(std::make_pair(DB_NAME_EXPIRY, seekEntry));
-
-    for (; pcursor->Valid(); pcursor->Next())
-    {
-        std::pair<uint8_t, CNameCache::ExpireEntry> key;
-        if (!pcursor->GetKey(key) || key.first != DB_NAME_EXPIRY)
-            break;
-        const CNameCache::ExpireEntry& entry = key.second;
-
-        assert (entry.nHeight >= nHeight);
-        if (entry.nHeight > nHeight)
-          break;
-
-        const valtype& name = entry.name;
-        if (names.count(name) > 0) {
-            LogError ("%s : duplicate name %s in expire index",
-                      __func__, EncodeNameForMessage(name));
-            return false;
-        }
-        names.insert(name);
-    }
-
-    return true;
-}
-
-class CDbNameIterator : public CNameIterator
-{
-
-private:
-
-    /** The backing LevelDB iterator.  */
-    std::unique_ptr<CDBIterator> iter;
-
-public:
-
-    /**
-     * Construct a new name iterator for the database.
-     * @param db The database to create the iterator for.
-     */
-    CDbNameIterator(const CDBWrapper& db);
-
-    /* Implement iterator methods.  */
-    void seek (const valtype& start) override;
-    bool next (valtype& name, CNameData& data) override;
-
-};
-
-CDbNameIterator::CDbNameIterator(const CDBWrapper& db)
-    : iter(const_cast<CDBWrapper*>(&db)->NewIterator())
-{
-    seek(valtype());
-}
-
-void CDbNameIterator::seek(const valtype& start) {
-    iter->Seek(std::make_pair(DB_NAME, start));
-}
-
-bool CDbNameIterator::next(valtype& name, CNameData& data) {
-    if (!iter->Valid())
-        return false;
-
-    std::pair<uint8_t, valtype> key;
-    if (!iter->GetKey(key) || key.first != DB_NAME)
-        return false;
-    name = key.second;
-
-    if (!iter->GetValue(data)) {
-        LogError ("%s : failed to read data from iterator", __func__);
-        return false;
-    }
-
-    iter->Next ();
-    return true;
-}
-
-CNameIterator* CCoinsViewDB::IterateNames() const {
-    return new CDbNameIterator(*m_db);
-}
-
-void CCoinsViewDB::BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash, const CNameCache& names)
+void CCoinsViewDB::BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash)
 {
     CDBBatch batch(*m_db);
     size_t count = 0;
@@ -294,8 +188,6 @@ void CCoinsViewDB::BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block
             }
         }
     }
-
-    names.writeBatch(batch);
 
     // In the last batch, mark the database as consistent with block_hash again.
     batch.Erase(DB_HEAD_BLOCKS);
@@ -406,206 +298,4 @@ void CCoinsViewDBCursor::Next()
     } else {
         keyTmp.first = entry.key;
     }
-}
-
-bool CCoinsViewDB::ValidateNameDB(const Chainstate& chainState, const std::function<void()>& interruption_point) const
-{
-    const uint256 blockHash = GetBestBlock();
-    int nHeight;
-    if (blockHash.IsNull())
-        nHeight = 0;
-    else
-        nHeight = chainState.m_blockman.m_block_index.find(blockHash)->second.nHeight;
-
-    /* It seems that there are no "const iterators" for LevelDB.  Since we
-       only need read operations on it, use a const-cast to get around
-       that restriction.  */
-    std::unique_ptr<CDBIterator> pcursor(const_cast<CDBWrapper*>(m_db.get())->NewIterator());
-    pcursor->SeekToFirst();
-
-    /* Loop over the total database and read interesting
-       things to memory.  We later use that to check
-       everything against each other.  */
-
-    std::map<valtype, unsigned> nameHeightsIndex;
-    std::map<valtype, unsigned> nameHeightsData;
-    std::set<valtype> namesInDB;
-    std::set<valtype> namesInUTXO;
-    std::set<valtype> namesWithHistory;
-
-    for (; pcursor->Valid(); pcursor->Next())
-    {
-        interruption_point();
-        uint8_t chType;
-        if (!pcursor->GetKey(chType))
-            continue;
-
-        switch (chType)
-        {
-        case DB_COIN:
-        {
-            Coin coin;
-            if (!pcursor->GetValue(coin)) {
-                LogError ("%s : failed to read coin", __func__);
-                return false;
-            }
-
-            if (!coin.out.IsNull())
-            {
-                const CNameScript nameOp(coin.out.scriptPubKey);
-                if (nameOp.isNameOp() && nameOp.isAnyUpdate())
-                {
-                    const valtype& name = nameOp.getOpName();
-                    if (namesInUTXO.count(name) > 0) {
-                        LogError ("%s : name %s duplicated in UTXO set",
-                                  __func__, EncodeNameForMessage(name));
-                        return false;
-                    }
-                    namesInUTXO.insert(nameOp.getOpName());
-                }
-            }
-            break;
-        }
-
-        case DB_NAME:
-        {
-            std::pair<uint8_t, valtype> key;
-            if (!pcursor->GetKey(key) || key.first != DB_NAME) {
-                LogError ("%s : failed to read DB_NAME key", __func__);
-                return false;
-            }
-            const valtype& name = key.second;
-
-            CNameData data;
-            if (!pcursor->GetValue(data)) {
-                LogError ("%s : failed to read name value", __func__);
-                return false;
-            }
-
-            if (nameHeightsData.count(name) > 0) {
-                LogError ("%s : name %s duplicated in name index",
-                          __func__, EncodeNameForMessage(name));
-                return false;
-            }
-            nameHeightsData.insert(std::make_pair(name, data.getHeight()));
-            
-            /* Expiration is checked at height+1, because that matches
-               how the UTXO set is cleared in ExpireNames.  */
-            assert(namesInDB.count(name) == 0);
-            if (!data.isExpired(nHeight + 1))
-                namesInDB.insert(name);
-            break;
-        }
-
-        case DB_NAME_HISTORY:
-        {
-            std::pair<uint8_t, valtype> key;
-            if (!pcursor->GetKey(key) || key.first != DB_NAME_HISTORY) {
-                LogError ("%s : failed to read DB_NAME_HISTORY key", __func__);
-                return false;
-            }
-            const valtype& name = key.second;
-
-            if (namesWithHistory.count(name) > 0) {
-                LogError ("%s : name %s has duplicate history",
-                          __func__, EncodeNameForMessage(name));
-                return false;
-            }
-            namesWithHistory.insert(name);
-            break;
-        }
-
-        case DB_NAME_EXPIRY:
-        {
-            std::pair<uint8_t, CNameCache::ExpireEntry> key;
-            if (!pcursor->GetKey(key) || key.first != DB_NAME_EXPIRY) {
-                LogError ("%s : failed to read DB_NAME_EXPIRY key", __func__);
-                return false;
-            }
-            const CNameCache::ExpireEntry& entry = key.second;
-            const valtype& name = entry.name;
-
-            if (nameHeightsIndex.count(name) > 0) {
-                LogError ("%s : name %s duplicated in expire idnex",
-                          __func__, EncodeNameForMessage(name));
-                return false;
-            }
-
-            nameHeightsIndex.insert(std::make_pair(name, entry.nHeight));
-            break;
-        }
-
-        default:
-            break;
-        }
-    }
-
-    /* Now verify the collected data.  */
-
-    assert (nameHeightsData.size() >= namesInDB.size());
-
-    if (nameHeightsIndex != nameHeightsData) {
-        LogError ("%s : name height data mismatch", __func__);
-        return false;
-    }
-
-    for (const auto& name : namesInDB)
-        if (namesInUTXO.count(name) == 0) {
-            LogError ("%s : name '%s' in DB but not UTXO set",
-                      __func__, EncodeNameForMessage(name));
-            return false;
-        }
-    for (const auto& name : namesInUTXO)
-        if (namesInDB.count(name) == 0) {
-            LogError ("%s : name '%s' in UTXO set but not DB",
-                      __func__, EncodeNameForMessage(name));
-            return false;
-        }
-
-    if (fNameHistory)
-    {
-        for (const auto& name : namesWithHistory)
-            if (nameHeightsData.count(name) == 0) {
-                LogError ("%s : history entry for name '%s' not in main DB",
-                          __func__, EncodeNameForMessage(name));
-                return false;
-            }
-    } else if (!namesWithHistory.empty ()) {
-        LogError ("%s : name_history entries in DB, but"
-                  " -namehistory not set", __func__);
-        return false;
-    }
-
-    LogInfo("Checked name database, %u unexpired names, %u total.\n",
-            namesInDB.size(), nameHeightsData.size());
-    LogInfo("Names with history: %u\n", namesWithHistory.size());
-
-    return true;
-}
-
-void
-CNameCache::writeBatch (CDBBatch& batch) const
-{
-  for (EntryMap::const_iterator i = entries.begin ();
-       i != entries.end (); ++i)
-    batch.Write (std::make_pair (DB_NAME, i->first), i->second);
-
-  for (std::set<valtype>::const_iterator i = deleted.begin ();
-       i != deleted.end (); ++i)
-    batch.Erase (std::make_pair (DB_NAME, *i));
-
-  assert (fNameHistory || history.empty ());
-  for (std::map<valtype, CNameHistory>::const_iterator i = history.begin ();
-       i != history.end (); ++i)
-    if (i->second.empty ())
-      batch.Erase (std::make_pair (DB_NAME_HISTORY, i->first));
-    else
-      batch.Write (std::make_pair (DB_NAME_HISTORY, i->first), i->second);
-
-  for (std::map<ExpireEntry, bool>::const_iterator i = expireIndex.begin ();
-       i != expireIndex.end (); ++i)
-    if (i->second)
-      batch.Write (std::make_pair (DB_NAME_EXPIRY, i->first));
-    else
-      batch.Erase (std::make_pair (DB_NAME_EXPIRY, i->first));
 }

@@ -16,10 +16,8 @@
 #include <core_io.h>
 #include <crypto/sha256.h>
 #include <key_io.h>
-#include <names/encoding.h>
 #include <policy/policy.h>
 #include <primitives/transaction.h>
-#include <script/names.h>
 #include <script/script.h>
 #include <script/sign.h>
 #include <script/signingprovider.h>
@@ -55,8 +53,6 @@ static void SetupBitcoinTxArgs(ArgsManager &argsman)
     argsman.AddArg("-create", "Create new, empty TX.", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-json", "Select JSON output", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-txid", "Output only the hex-encoded transaction id of the resultant transaction.", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
-    argsman.AddArg("-nameencoding", strprintf("The encoding to use for names in the JSON output (default: %s)", EncodingToString(DEFAULT_NAME_ENCODING)), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
-    argsman.AddArg("-valueencoding", strprintf("The encoding to use for values in the JSON output (default: %s)", EncodingToString(DEFAULT_VALUE_ENCODING)), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     SetupChainParamsBaseOptions(argsman);
 
     argsman.AddArg("delin=N", "Delete input N from TX", ArgsManager::ALLOW_ANY, OptionsCategory::COMMANDS);
@@ -86,19 +82,6 @@ static void SetupBitcoinTxArgs(ArgsManager &argsman)
 
     argsman.AddArg("load=NAME:FILENAME", "Load JSON file FILENAME into register NAME", ArgsManager::ALLOW_ANY, OptionsCategory::REGISTER_COMMANDS);
     argsman.AddArg("set=NAME:JSON-STRING", "Set register NAME to given JSON-STRING", ArgsManager::ALLOW_ANY, OptionsCategory::REGISTER_COMMANDS);
-
-    argsman.AddArg("namenew=N:NAME:RAND",
-                   "Turns the existing output N into a NAME_NEW operation"
-                   " with the given hex-encoded NAME and RAND.",
-                   ArgsManager::ALLOW_ANY, OptionsCategory::COMMANDS);
-    argsman.AddArg("namefirstupdate=N:NAME:VALUE:RAND",
-                   "Turns the existing output N into a NAME_FIRSTUPDATE operation"
-                   " with the given hex-encoded NAME, VALUE and RAND.",
-                   ArgsManager::ALLOW_ANY, OptionsCategory::COMMANDS);
-    argsman.AddArg("nameupdate=N:NAME:VALUE",
-                   "Turns the existing output N into a NAME_UPDATE operation"
-                   " with the given hex-encoded NAME and VALUE.",
-                   ArgsManager::ALLOW_ANY, OptionsCategory::COMMANDS);
 }
 
 //
@@ -524,77 +507,6 @@ static void MutateTxAddOutScript(CMutableTransaction& tx, const std::string& str
     tx.vout.push_back(txout);
 }
 
-namespace
-{
-
-/**
- * Mutates a transaction by turning an output indicated by the value string
- * into a name operation.  This is a common function, since the different
- * possible name operations share a lot of logic (like most argument parding).
- */
-void
-MutateTxNameOutput (CMutableTransaction& tx, const std::string& command,
-                    const std::string& value)
-{
-  /* First, we parse the value string.  For all commands, it is supposed to
-     start with the output index and then have some hex-encoded data
-     arguments.  */
-
-  const std::vector<std::string> valueParts = SplitString(value, ':');
-  if (valueParts.size () < 1)
-    throw std::runtime_error ("name operation missing output index");
-
-  const auto idx{ToIntegral<uint32_t>(valueParts[0])};
-  if (!idx || idx >= tx.vout.size()) {
-      throw std::runtime_error("Invalid TX output index '" + valueParts[0] + "' for name operation");
-  }
-
-  std::vector<valtype> data;
-  for (size_t i = 1; i < valueParts.size (); ++i)
-    {
-      if (!IsHex (valueParts[i]))
-        {
-          std::ostringstream msg;
-          msg << "invalid hex argument '" << valueParts[i] << "'"
-              << " for name operation";
-          throw std::runtime_error (msg.str ());
-        }
-      data.push_back (ParseHex (valueParts[i]));
-    }
-
-  /* Next, fetch the output script we want to modify.  */
-  const CScript& addr = tx.vout[*idx].scriptPubKey;
-
-  /* Build the name script according to the command.  */
-  CScript nameOp;
-  if (command == "namenew")
-    {
-      if (data.size () != 2)
-        throw std::runtime_error ("namenew expects N:NAME:RAND");
-      nameOp = CNameScript::buildNameNew (addr, data[0], data[1]);
-    }
-  else if (command == "namefirstupdate")
-    {
-      if (data.size () != 3)
-        throw std::runtime_error ("namefirstupdate expects N:NAME:VALUE:RAND");
-      nameOp = CNameScript::buildNameFirstupdate (addr, data[0], data[1],
-                                                  data[2]);
-    }
-  else if (command == "nameupdate")
-    {
-      if (data.size () != 2)
-        throw std::runtime_error ("nameupdate expects N:NAME:VALUE");
-      nameOp = CNameScript::buildNameUpdate (addr, data[0], data[1]);
-    }
-  else
-    assert (false);
-
-  /* Update the transaction.  */
-  tx.vout[*idx].scriptPubKey = nameOp;
-}
-
-} // anonymous namespace
-
 static void MutateTxDelInput(CMutableTransaction& tx, const std::string& strInIdx)
 {
     const auto idx{ToIntegral<uint32_t>(strInIdx)};
@@ -743,7 +655,7 @@ static void MutateTxSign(CMutableTransaction& tx, const std::string& flagStr)
 
             // if redeemScript given and private keys given,
             // add redeemScript to the tempKeystore so it can be signed:
-            if ((scriptPubKey.IsPayToScriptHash(true) || scriptPubKey.IsPayToWitnessScriptHash(true)) &&
+            if ((scriptPubKey.IsPayToScriptHash() || scriptPubKey.IsPayToWitnessScriptHash()) &&
                 prevOut.exists("redeemScript")) {
                 UniValue v = prevOut["redeemScript"];
                 std::vector<unsigned char> rsData(ParseHexUV(v, "redeemScript"));
@@ -814,11 +726,6 @@ static void MutateTx(CMutableTransaction& tx, const std::string& command,
         MutateTxAddOutScript(tx, commandVal);
     else if (command == "outdata")
         MutateTxAddOutData(tx, commandVal);
-
-    else if (command == "namenew"
-              || command == "namefirstupdate"
-              || command == "nameupdate")
-        MutateTxNameOutput(tx, command, commandVal);
 
     else if (command == "sign") {
         ecc.reset(new ECC_Context());

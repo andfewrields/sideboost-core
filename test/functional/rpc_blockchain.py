@@ -216,7 +216,7 @@ class BlockchainTest(BitcoinTestFramework):
         assert_equal(gdi_result, {
           "hash": blockhash,
           "height": height,
-          "script_flags": ["CHECKLOCKTIMEVERIFY","CHECKSEQUENCEVERIFY","DERSIG","NAMES_LONG_SALT","NULLDUMMY","P2SH","TAPROOT","WITNESS"],
+          "script_flags": ["CHECKLOCKTIMEVERIFY","CHECKSEQUENCEVERIFY","DERSIG","NULLDUMMY","P2SH","TAPROOT","WITNESS"],
           "deployments": {
             'bip16': {'type': 'buried', 'active': True, 'height': 0},
             'bip34': {'type': 'buried', 'active': True, 'height': 2},
@@ -333,7 +333,7 @@ class BlockchainTest(BitcoinTestFramework):
         node = self.nodes[0]
         res = node.gettxoutsetinfo()
 
-        assert_equal(res['amount']['total'], Decimal('8725.00000000'))
+        assert_equal(res['total_amount'], Decimal('8725.00000000'))
         assert_equal(res['transactions'], HEIGHT)
         assert_equal(res['height'], HEIGHT)
         assert_equal(res['txouts'], HEIGHT)
@@ -351,7 +351,7 @@ class BlockchainTest(BitcoinTestFramework):
 
         res2 = node.gettxoutsetinfo()
         assert_equal(res2['transactions'], 0)
-        assert_equal(res2['amount']['total'], Decimal('0'))
+        assert_equal(res2['total_amount'], Decimal('0'))
         assert_equal(res2['height'], 0)
         assert_equal(res2['txouts'], 0)
         assert_equal(res2['bogosize'], 0),

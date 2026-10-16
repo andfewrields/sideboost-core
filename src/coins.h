@@ -11,7 +11,6 @@
 #include <core_memusage.h>
 #include <crypto/siphash.h>
 #include <memusage.h>
-#include <names/common.h>
 #include <primitives/transaction.h>
 #include <primitives/transaction_identifier.h>
 #include <serialize.h>
@@ -35,8 +34,6 @@
 
 class CBlock;
 class ThreadPool;
-
-class Chainstate;
 
 /**
  * A UTXO entry.
@@ -382,24 +379,9 @@ public:
     //! the old block hash, in that order.
     virtual std::vector<uint256> GetHeadBlocks() const = 0;
 
-    // Get a name (if it exists)
-    virtual bool GetName(const valtype& name, CNameData& data) const = 0;
-
-    // Get a name's history (if it exists)
-    virtual bool GetNameHistory(const valtype& name, CNameHistory& data) const = 0;
-
-    // Query for names that were updated at the given height
-    virtual bool GetNamesForHeight(unsigned nHeight, std::set<valtype>& names) const = 0;
-
-    // Get a name iterator.
-    virtual CNameIterator* IterateNames() const = 0;
-
     //! Do a bulk modification (multiple Coin changes + BestBlock change).
     //! The passed cursor is used to iterate through the coins.
-    virtual void BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash, const CNameCache& names) = 0;
-
-    // Validate the name database.
-    virtual bool ValidateNameDB(const Chainstate& chainState, const std::function<void()>& interruption_point) const = 0;
+    virtual void BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash) = 0;
 
     //! Estimate database size
     virtual size_t EstimateSize() const = 0;
@@ -422,15 +404,10 @@ public:
     bool HaveCoin(const COutPoint& outpoint) const override { return !!GetCoin(outpoint); }
     uint256 GetBestBlock() const override { return {}; }
     std::vector<uint256> GetHeadBlocks() const override { return {}; }
-    bool GetName(const valtype& name, CNameData& data) const override { return false; }
-    bool GetNameHistory(const valtype& name, CNameHistory& data) const override { return false; }
-    bool GetNamesForHeight(unsigned nHeight, std::set<valtype>& names) const override { return false; }
-    CNameIterator* IterateNames() const override { assert(false); }
-    void BatchWrite(CoinsViewCacheCursor& cursor, const uint256&, const CNameCache& names) override
+    void BatchWrite(CoinsViewCacheCursor& cursor, const uint256&) override
     {
         for (auto it{cursor.Begin()}; it != cursor.End(); it = cursor.NextAndMaybeErase(*it)) { }
     }
-    bool ValidateNameDB(const Chainstate& chainState, const std::function<void()>& interruption_point) const override { return true; }
     size_t EstimateSize() const override { return 0; }
 };
 
@@ -450,12 +427,7 @@ public:
     bool HaveCoin(const COutPoint& outpoint) const override { return base->HaveCoin(outpoint); }
     uint256 GetBestBlock() const override { return base->GetBestBlock(); }
     std::vector<uint256> GetHeadBlocks() const override { return base->GetHeadBlocks(); }
-    bool GetName(const valtype& name, CNameData& data) const override { return base->GetName(name, data); }
-    bool GetNameHistory(const valtype& name, CNameHistory& data) const override { return base->GetNameHistory(name, data); }
-    bool GetNamesForHeight(unsigned nHeight, std::set<valtype>& names) const override { return base->GetNamesForHeight(nHeight, names); }
-    CNameIterator* IterateNames() const override { return base->IterateNames(); }
-    void BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash, const CNameCache& names) override { base->BatchWrite(cursor, block_hash, names); }
-    bool ValidateNameDB(const Chainstate& chainState, const std::function<void()>& interruption_point) const override { return base->ValidateNameDB(chainState, interruption_point); }
+    void BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash) override { base->BatchWrite(cursor, block_hash); }
     size_t EstimateSize() const override { return base->EstimateSize(); }
 };
 
@@ -491,7 +463,6 @@ protected:
     mutable CCoinsMap cacheCoins;
 
     /* Cached dynamic memory usage for the inner Coin objects. */
-    /* TODO: Sum up also name cache usage.  */
     mutable size_t cachedCoinsUsage{0};
     /* Running count of dirty Coin cache entries. */
     mutable size_t m_dirty_count{0};
@@ -504,9 +475,6 @@ protected:
 
     /* Fetch the coin from base. Used for cache misses in FetchCoin. */
     virtual std::optional<Coin> FetchCoinFromBase(const COutPoint& outpoint) const;
-
-    /** Name changes cache.  */
-    CNameCache cacheNames;
 
 public:
     CCoinsViewCache(CCoinsView* in_base, bool deterministic = false);
@@ -521,16 +489,8 @@ public:
     std::optional<Coin> PeekCoin(const COutPoint& outpoint) const override;
     bool HaveCoin(const COutPoint& outpoint) const override;
     uint256 GetBestBlock() const override;
-    void SetBestBlock(const uint256& hashBlock);
-    bool GetName(const valtype& name, CNameData& data) const override;
-    bool GetNameHistory(const valtype& name, CNameHistory& data) const override;
-    bool GetNamesForHeight(unsigned nHeight, std::set<valtype>& names) const override;
-    CNameIterator* IterateNames() const override;
-    void BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash, const CNameCache& names) override;
-
-    /* Changes to the name database.  */
-    void SetName(const valtype &name, const CNameData &data, bool undo);
-    void DeleteName(const valtype &name);
+    void SetBestBlock(const uint256& block_hash);
+    void BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash) override;
 
     /**
      * Check if we have the given utxo already loaded in this cache.

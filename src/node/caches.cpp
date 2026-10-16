@@ -6,7 +6,6 @@
 
 #include <common/args.h>
 #include <common/system.h>
-#include <index/namehash.h>
 #include <index/txindex.h>
 #include <index/txospenderindex.h>
 #include <kernel/caches.h>
@@ -73,7 +72,6 @@ CacheSizes CalculateCacheSizes(const ArgsManager& args, size_t n_indexes)
     IndexCacheSizes index_sizes;
     index_sizes.tx_index = std::min(total_cache * 10 / 100, args.GetBoolArg("-txindex", DEFAULT_TXINDEX) ? MAX_TX_INDEX_CACHE : 0);
     index_sizes.txospender_index = std::min(total_cache * 5 / 100, args.GetBoolArg("-txospenderindex", DEFAULT_TXOSPENDERINDEX) ? MAX_TXOSPENDER_INDEX_CACHE : 0);
-    index_sizes.name_hash_index = std::min(total_cache * 5 / 100, gArgs.GetBoolArg("-namehashindex", DEFAULT_NAMEHASHINDEX) ? MAX_NAMEHASH_CACHE : 0);
     if (n_indexes > 0) {
         uint64_t max_cache = std::min(total_cache * 5 / 100, MAX_FILTER_INDEX_CACHE);
         index_sizes.filter_index = max_cache / n_indexes;

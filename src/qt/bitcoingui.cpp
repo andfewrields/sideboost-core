@@ -7,12 +7,10 @@
 #include <qt/bitcoingui.h>
 
 #include <qt/bitcoinunits.h>
-#include <qt/buynamespage.h>
 #include <qt/clientmodel.h>
 #include <qt/createwalletdialog.h>
 #include <qt/guiconstants.h>
 #include <qt/guiutil.h>
-#include <qt/managenamespage.h>
 #include <qt/modaloverlay.h>
 #include <qt/networkstyle.h>
 #include <qt/notificator.h>
@@ -272,7 +270,7 @@ void BitcoinGUI::createActions()
     tabGroup->addAction(sendCoinsAction);
 
     receiveCoinsAction = new QAction(platformStyle->SingleColorIcon(":/icons/receiving_addresses"), tr("&Receive"), this);
-    receiveCoinsAction->setStatusTip(tr("Request payments and name transfers (generates QR codes and namecoin: URIs)"));
+    receiveCoinsAction->setStatusTip(tr("Request payments (generates QR codes and namecoin: URIs)"));
     receiveCoinsAction->setToolTip(receiveCoinsAction->statusTip());
     receiveCoinsAction->setCheckable(true);
     receiveCoinsAction->setShortcut(QKeySequence(QStringLiteral("Alt+3")));
@@ -285,28 +283,6 @@ void BitcoinGUI::createActions()
     historyAction->setShortcut(QKeySequence(QStringLiteral("Alt+4")));
     tabGroup->addAction(historyAction);
 
-    buyNamesAction = new QAction(platformStyle->SingleColorIcon(":/icons/bitcoin_transparent_letter"), tr("&Buy Names"), this);
-    buyNamesAction->setStatusTip(tr("Register new names"));
-    buyNamesAction->setToolTip(buyNamesAction->statusTip());
-    buyNamesAction->setCheckable(true);
-    buyNamesAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_5));
-    tabGroup->addAction(buyNamesAction);
-
-    buyNamesMenuAction = new QAction(buyNamesAction->text(), this);
-    buyNamesMenuAction->setStatusTip(buyNamesAction->statusTip());
-    buyNamesMenuAction->setToolTip(buyNamesMenuAction->statusTip());
-
-    manageNamesAction = new QAction(platformStyle->SingleColorIcon(":/icons/bitcoin_transparent_letter"), tr("&Manage Names"), this);
-    manageNamesAction->setStatusTip(tr("Manage registered names"));
-    manageNamesAction->setToolTip(manageNamesAction->statusTip());
-    manageNamesAction->setCheckable(true);
-    manageNamesAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_6));
-    tabGroup->addAction(manageNamesAction);
-
-    manageNamesMenuAction = new QAction(manageNamesAction->text(), this);
-    manageNamesMenuAction->setStatusTip(manageNamesAction->statusTip());
-    manageNamesMenuAction->setToolTip(manageNamesMenuAction->statusTip());
-
 #ifdef ENABLE_WALLET
     // These showNormalIfMinimized are needed because Send Coins and Receive Coins
     // can be triggered from the tray menu, and need to show the GUI to be useful.
@@ -318,10 +294,6 @@ void BitcoinGUI::createActions()
     connect(receiveCoinsAction, &QAction::triggered, this, &BitcoinGUI::gotoReceiveCoinsPage);
     connect(historyAction, &QAction::triggered, [this]{ showNormalIfMinimized(); });
     connect(historyAction, &QAction::triggered, this, &BitcoinGUI::gotoHistoryPage);
-    connect(buyNamesAction, &QAction::triggered, [this]{ showNormalIfMinimized(); });
-    connect(buyNamesAction, &QAction::triggered, this, &BitcoinGUI::gotoBuyNamesPage);
-    connect(manageNamesAction, &QAction::triggered, [this]{ showNormalIfMinimized(); });
-    connect(manageNamesAction, &QAction::triggered, this, &BitcoinGUI::gotoManageNamesPage);
 #endif // ENABLE_WALLET
 
     quitAction = new QAction(tr("E&xit"), this);
@@ -686,8 +658,6 @@ void BitcoinGUI::createToolBars()
         toolbar->addAction(sendCoinsAction);
         toolbar->addAction(receiveCoinsAction);
         toolbar->addAction(historyAction);
-        toolbar->addAction(buyNamesAction);
-        toolbar->addAction(manageNamesAction);
         overviewAction->setChecked(true);
 
 #ifdef ENABLE_WALLET
@@ -908,8 +878,6 @@ void BitcoinGUI::setWalletActionsEnabled(bool enabled)
     sendCoinsAction->setEnabled(enabled);
     receiveCoinsAction->setEnabled(enabled);
     historyAction->setEnabled(enabled && !isPrivacyModeActivated());
-    buyNamesAction->setEnabled(enabled);
-    manageNamesAction->setEnabled(enabled);
     encryptWalletAction->setEnabled(enabled);
     backupWalletAction->setEnabled(enabled);
     changePassphraseAction->setEnabled(enabled);
@@ -952,15 +920,11 @@ void BitcoinGUI::createTrayIconMenu()
 
     QAction* send_action{nullptr};
     QAction* receive_action{nullptr};
-    QAction* buyNames_action{nullptr};
-    QAction* manageNames_action{nullptr};
     QAction* sign_action{nullptr};
     QAction* verify_action{nullptr};
     if (enableWallet) {
         send_action = trayIconMenu->addAction(sendCoinsAction->text(), sendCoinsAction, &QAction::trigger);
         receive_action = trayIconMenu->addAction(receiveCoinsAction->text(), receiveCoinsAction, &QAction::trigger);
-        buyNames_action = trayIconMenu->addAction(buyNamesMenuAction->text(), buyNamesAction, &QAction::trigger);
-        manageNames_action = trayIconMenu->addAction(manageNamesMenuAction->text(), manageNamesAction, &QAction::trigger);
         trayIconMenu->addSeparator();
         sign_action = trayIconMenu->addAction(signMessageAction->text(), signMessageAction, &QAction::trigger);
         verify_action = trayIconMenu->addAction(verifyMessageAction->text(), verifyMessageAction, &QAction::trigger);
@@ -997,7 +961,7 @@ void BitcoinGUI::createTrayIconMenu()
         // Using QSystemTrayIcon::Context is not reliable.
         // See https://bugreports.qt.io/browse/QTBUG-91697
         trayIconMenu.get(), &QMenu::aboutToShow,
-        [this, show_hide_action, send_action, receive_action, buyNames_action, manageNames_action, sign_action, verify_action, options_action, node_window_action, quit_action] {
+        [this, show_hide_action, send_action, receive_action, sign_action, verify_action, options_action, node_window_action, quit_action] {
             if (m_node.shutdownRequested()) return; // nothing to do, node is shutting down.
 
             if (show_hide_action) show_hide_action->setText(
@@ -1013,8 +977,6 @@ void BitcoinGUI::createTrayIconMenu()
                 if (enableWallet) {
                     send_action->setEnabled(sendCoinsAction->isEnabled());
                     receive_action->setEnabled(receiveCoinsAction->isEnabled());
-                    buyNames_action->setEnabled(buyNamesAction->isEnabled());
-                    manageNames_action->setEnabled(manageNamesAction->isEnabled());
                     sign_action->setEnabled(signMessageAction->isEnabled());
                     verify_action->setEnabled(verifyMessageAction->isEnabled());
                 }
@@ -1088,18 +1050,6 @@ void BitcoinGUI::gotoSendCoinsPage(QString addr)
 {
     sendCoinsAction->setChecked(true);
     if (walletFrame) walletFrame->gotoSendCoinsPage(addr);
-}
-
-void BitcoinGUI::gotoBuyNamesPage()
-{
-    buyNamesAction->setChecked(true);
-    if (walletFrame) walletFrame->gotoBuyNamesPage();
-}
-
-void BitcoinGUI::gotoManageNamesPage()
-{
-    manageNamesAction->setChecked(true);
-    if (walletFrame) walletFrame->gotoManageNamesPage();
 }
 
 void BitcoinGUI::gotoSignMessageTab(QString addr)

@@ -17,7 +17,6 @@
 
 #include <core_io.h>
 #include <interfaces/handler.h>
-#include <names/applications.h>
 #include <tinyformat.h>
 #include <uint256.h>
 
@@ -379,53 +378,6 @@ QString TransactionTableModel::formatTxType(const TransactionRecord *wtx) const
         return tr("Sent to");
     case TransactionRecord::Generated:
         return tr("Mined");
-    case TransactionRecord::NameOp:
-    {
-        QString namespaceStrCap;
-        QString namespaceStrLow;
-        switch(wtx->nameNamespace)
-        {
-        case NameNamespace::Domain:
-            namespaceStrCap = tr("Domain");
-            namespaceStrLow = tr("domain");
-            break;
-        case NameNamespace::DomainData:
-            namespaceStrCap = tr("Domain data");
-            namespaceStrLow = tr("domain data");
-            break;
-        case NameNamespace::Identity:
-            namespaceStrCap = tr("Identity");
-            namespaceStrLow = tr("identity");
-            break;
-        case NameNamespace::IdentityData:
-            namespaceStrCap = tr("Identity data");
-            namespaceStrLow = tr("identity data");
-            break;
-        case NameNamespace::NonStandard:
-            namespaceStrCap = tr("Non-standard name");
-            namespaceStrLow = tr("non-standard name");
-            break;
-        }
-
-        switch(wtx->nameOpType)
-        {
-        case TransactionRecord::NameOpType::New:
-            return tr("Name pre-registration");
-        case TransactionRecord::NameOpType::FirstUpdate:
-            return tr("%1 registration").arg(namespaceStrCap);
-        case TransactionRecord::NameOpType::Update:
-            return tr("%1 update").arg(namespaceStrCap);
-        case TransactionRecord::NameOpType::Renew:
-            return tr("%1 renewal").arg(namespaceStrCap);
-        case TransactionRecord::NameOpType::Recv:
-            return tr("Received %1").arg(namespaceStrLow);
-        case TransactionRecord::NameOpType::Send:
-            return tr("Sent %1").arg(namespaceStrLow);
-        case TransactionRecord::NameOpType::Other:
-            return tr("Unknown name operation");
-        } // no default case, so the compiler can warn about missing cases
-        assert(false);
-    }
     default:
         return QString();
     }
@@ -443,9 +395,6 @@ QVariant TransactionTableModel::txAddressDecoration(const TransactionRecord *wtx
     case TransactionRecord::SendToAddress:
     case TransactionRecord::SendToOther:
         return QIcon(":/icons/tx_output");
-    case TransactionRecord::NameOp:
-        // TODO: Use nameOpType here
-        return QIcon(":/icons/bitcoin_transparent_letter");
     default:
         return QIcon(":/icons/tx_inout");
     }
@@ -462,7 +411,6 @@ QString TransactionTableModel::formatTxToAddress(const TransactionRecord *wtx, b
     case TransactionRecord::Generated:
         return lookupAddress(wtx->address, tooltip);
     case TransactionRecord::SendToOther:
-    case TransactionRecord::NameOp:
         return QString::fromStdString(wtx->address);
     default:
         return tr("(n/a)");
@@ -537,8 +485,7 @@ QString TransactionTableModel::formatTooltip(const TransactionRecord *rec) const
 {
     QString tooltip = formatTxStatus(rec) + QString("\n") + formatTxType(rec);
     if(rec->type==TransactionRecord::RecvFromOther || rec->type==TransactionRecord::SendToOther ||
-       rec->type==TransactionRecord::SendToAddress || rec->type==TransactionRecord::RecvWithAddress ||
-       rec->type==TransactionRecord::NameOp)
+       rec->type==TransactionRecord::SendToAddress || rec->type==TransactionRecord::RecvWithAddress)
     {
         tooltip += QString(" ") + formatTxToAddress(rec, true);
     }

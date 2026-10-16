@@ -50,7 +50,7 @@ class DecodeScriptTest(BitcoinTestFramework):
         # thus, such a spending scriptSig would just need to pass the outer redeemScript
         # hash test and leave true on the top of the stack.
         rpc_result = self.nodes[0].decodescript('5100')
-        assert_equal('OP_NAME_NEW 0', rpc_result['asm'])
+        assert_equal('1 0', rpc_result['asm'])
 
         # null data scriptSig - no such thing because null data scripts cannot be spent.
         # thus, no test case for that standard transaction type is here.
@@ -90,7 +90,7 @@ class DecodeScriptTest(BitcoinTestFramework):
         multisig_script = '52' + push_public_key + push_public_key + push_public_key + '53ae'
         rpc_result = self.nodes[0].decodescript(multisig_script)
         assert_equal('multisig', rpc_result['type'])
-        assert_equal('OP_NAME_FIRSTUPDATE ' + public_key + ' ' + public_key + ' ' + public_key +  ' OP_NAME_UPDATE OP_CHECKMULTISIG', rpc_result['asm'])
+        assert_equal('2 ' + public_key + ' ' + public_key + ' ' + public_key +  ' 3 OP_CHECKMULTISIG', rpc_result['asm'])
         # multisig in P2WSH
         multisig_script_hash = sha256(bytes.fromhex(multisig_script)).hex()
         assert_equal('witness_v0_scripthash', rpc_result['segwit']['type'])
@@ -154,7 +154,7 @@ class DecodeScriptTest(BitcoinTestFramework):
         # with an uncompressed pubkey in them.
         rpc_result = self.nodes[0].decodescript('52' + push_public_key + push_uncompressed_public_key +'52ae')
         assert_equal('multisig', rpc_result['type'])
-        assert_equal('OP_NAME_FIRSTUPDATE ' + public_key + ' ' + uncompressed_public_key + ' OP_NAME_FIRSTUPDATE OP_CHECKMULTISIG', rpc_result['asm'])
+        assert_equal('2 ' + public_key + ' ' + uncompressed_public_key + ' 2 OP_CHECKMULTISIG', rpc_result['asm'])
         # uncompressed pubkeys are invalid for checksigs in segwit scripts.
         # decodescript should not return a P2WPKH equivalent.
         assert 'segwit' not in rpc_result
@@ -184,7 +184,7 @@ class DecodeScriptTest(BitcoinTestFramework):
         xonly_public_key = '01'*32  # first ever P2TR output on mainnet
         rpc_result = self.nodes[0].decodescript('5120' + xonly_public_key)
         assert_equal('witness_v1_taproot', rpc_result['type'])
-        assert_equal('OP_NAME_NEW ' + xonly_public_key, rpc_result['asm'])
+        assert_equal('1 ' + xonly_public_key, rpc_result['asm'])
         assert 'segwit' not in rpc_result
 
         self.log.info("- P2A (anchor)")
@@ -194,7 +194,7 @@ class DecodeScriptTest(BitcoinTestFramework):
         assert_equal('anchor', rpc_result['type'])
         # in the disassembly, the witness program is shown as single decimal due to its small size
         witprog_as_decimal = int.from_bytes(bytes.fromhex(witprog_hex), 'little')
-        assert_equal(f'OP_NAME_NEW {witprog_hex}', rpc_result['asm'])
+        assert_equal(f'1 {witprog_as_decimal}', rpc_result['asm'])
         assert_equal('ncrt1pfeesjnvuq8', rpc_result['address'])
 
     def decoderawtransaction_asm_sighashtype(self):
@@ -232,11 +232,6 @@ class DecodeScriptTest(BitcoinTestFramework):
         rpc_result = self.nodes[0].decoderawtransaction(tx)
         assert_equal('OP_DUP OP_HASH160 3011020701010101010101020601010101010101 OP_EQUALVERIFY OP_CHECKSIG', rpc_result['vout'][0]['scriptPubKey']['asm'])
         assert_equal('OP_HASH160 3011020701010101010101020601010101010101 OP_EQUAL', rpc_result['vout'][1]['scriptPubKey']['asm'])
-
-        # verify that names shorter than 5 bytes aren't interpreted into asm as integers (issue #140)
-        tx = '0071000002c323b5df3dbd501ef8e26683749fd13f785eac6d4f4c2083196a33262605e6ec010000008b48304502207cc397996cf41a4be7ce229226c2e3862557256e372dd325dfefaba26a4a44a20221008e71fc315563d04d7d92d6e2b0ef9c5e095df50777664819623156dcf3ec1c1e0141045bc24b6e33ecbe341e8195b4e8fcb3f8c7937ca6f671f799644968dc00e82d0160c5e14b687cba83840381dda04711939a225588eb0e2401d4f14dc9d3a5ccdaffffffff882be8eb700e1c6eaef2682839293ae9d5bfacf82cee80510d4dee6eed359c98000000004847304402206c6115eb47b4f3010a6c0e79ea5ee7f036fc1da22af172c4bd39a460758bb34402204cc40302837a3a61d9b1e12a99e73572f95da7b5005e5ce842a7b8b4ba90d7f901ffffffff02e007646300000000434104fb090d04c8f110012a9f4545b6cb1f93a6f22db1b35bef7e1545a4a0aef0124cd25c522851ba2120f12b124785adc6f09b13f8eaa294cfe54a601dc75f11df29ac40420f00000000005a5303662f6a394269746d65737361676520616464726573733a20424d2d3263554755687335436a6973526975514756574447334a514a47717a5967713134356d7576a9147368feca713f2a9d7780343b74007e26a4fcfcea88ac00000000'
-        rpc_result = self.nodes[0].decoderawtransaction(tx)
-        assert_equal('OP_NAME_UPDATE 662f6a 4269746d65737361676520616464726573733a20424d2d3263554755687335436a6973526975514756574447334a514a47717a596771313435 OP_2DROP OP_DROP OP_DUP OP_HASH160 7368feca713f2a9d7780343b74007e26a4fcfcea OP_EQUALVERIFY OP_CHECKSIG', rpc_result['vout'][1]['scriptPubKey']['asm'])
 
         # some more full transaction tests of varying specific scriptSigs. used instead of
         # tests in decodescript_script_sig because the decodescript RPC is specifically

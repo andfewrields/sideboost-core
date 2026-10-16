@@ -9,7 +9,6 @@
 #include <coins.h>
 #include <compressor.h>
 #include <consensus/consensus.h>
-#include <names/main.h>
 #include <primitives/transaction.h>
 #include <serialize.h>
 
@@ -66,17 +65,7 @@ class CBlockUndo
 public:
     std::vector<CTxUndo> vtxundo; // for all but the coinbase
 
-    /** Stack of operations done to the name database.  */
-    std::vector<CNameTxUndo> vnameundo;
-    /** Undo information for expired name coins.  */
-    std::vector<Coin> vexpired;
-
-    SERIALIZE_METHODS(CBlockUndo, obj) {
-        READWRITE(obj.vtxundo);
-        READWRITE(obj.vnameundo);
-        READWRITE(obj.vexpired);
-    }
-
+    SERIALIZE_METHODS(CBlockUndo, obj) { READWRITE(obj.vtxundo); }
 };
 
 #endif // BITCOIN_UNDO_H

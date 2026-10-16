@@ -50,13 +50,9 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
         self.rpc_timeout = 480
 
         # Set -maxmempool=0 to turn off mempool memory sharing with dbcache
-        # SideBoost: -checknamedb=-1, as the per-block name DB check flushes
-        # the coins cache, and a small block's flush never exceeds
-        # -dbbatchsize, which is where the simulated crash happens.
         self.base_args = [
             "-maxmempool=0",
             "-dbbatchsize=200000",
-            "-checknamedb=-1",
         ]
 
         # Set different crash ratios and cache sizes.  Note that not all of

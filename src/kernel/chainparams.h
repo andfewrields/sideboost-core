@@ -9,7 +9,6 @@
 #include <consensus/params.h>
 #include <kernel/messagestartchars.h>
 #include <primitives/block.h>
-#include <primitives/transaction_identifier.h>
 #include <uint256.h>
 #include <util/chaintype.h>
 #include <util/hash_type.h>
@@ -87,22 +86,6 @@ public:
         MAX_BASE58_TYPES
     };
 
-    enum BugType {
-        /* Tx is valid and all nameops should be performed.  */
-        BUG_FULLY_APPLY,
-        /* Don't apply the name operations but put the names into the UTXO
-           set.  This is done for libcoin's "d/bitcoin" stealing.  It is
-           then used as input into the "d/wav" stealing, thus needs to be in
-           the UTXO set.  We don't want the name to show up in the name
-           database, though.  */
-        BUG_IN_UTXO,
-        /* Don't apply the name operations and don't put the names into the
-           UTXO set.  They are immediately unspendable.  This is used for the
-           "d/wav" stealing output (which is not used later on) and also
-           for the NAME_FIRSTUPDATE's that are in non-Namecoin tx.  */
-        BUG_FULLY_IGNORE,
-    };
-
     const Consensus::Params& GetConsensus() const { return consensus; }
     const MessageStartChars& MessageStart() const { return pchMessageStart; }
     uint16_t GetDefaultPort() const { return nDefaultPort; }
@@ -111,8 +94,6 @@ public:
     const CBlock& GenesisBlock() const { return genesis; }
     /** Default value for -checkmempool and -checkblockindex argument */
     bool DefaultConsistencyChecks() const { return fDefaultConsistencyChecks; }
-    /** Default value for -checknamedb argument */
-    virtual int DefaultCheckNameDB() const = 0;
     /** If this chain is exclusively used for testing */
     bool IsTestChain() const { return m_chain_type != ChainType::MAIN; }
     /** If this chain allows time to be mocked */
@@ -145,13 +126,6 @@ public:
     }
 
     const ChainTxData& TxData() const { return chainTxData; }
-
-    /* Check whether the given tx is a "historic relic" for which to
-       skip the validity check.  Return also the "type" of the bug,
-       which determines further actions.  */
-    /* FIXME: Move to consensus params!  */
-    bool IsHistoricBug(const Txid& txid, unsigned nHeight, BugType& type) const;
-    virtual ~CChainParams() {}
 
     /**
      * VersionBitsParameters holds activation parameters
@@ -226,17 +200,6 @@ protected:
     HeadersSyncParams m_headers_sync_params;
 
     void ApplyDeploymentOptions(const DeploymentOptions& opts);
-
-    /* Map (block height, txid) pairs for buggy transactions onto their
-       bug type value.  */
-    std::map<std::pair<unsigned, uint256>, BugType> mapHistoricBugs;
-
-    /* Utility routine to insert into historic bug map.  */
-    inline void addBug(unsigned nHeight, const uint256& txid, BugType type)
-    {
-        std::pair<unsigned, uint256> key(nHeight, txid);
-        mapHistoricBugs.insert(std::make_pair(key, type));
-    }
 };
 
 std::optional<ChainType> GetNetworkForMagic(const MessageStartChars& pchMessageStart);

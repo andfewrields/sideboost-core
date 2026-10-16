@@ -6,10 +6,8 @@
 
 #include <qt/addressbookpage.h>
 #include <qt/askpassphrasedialog.h>
-#include <qt/buynamespage.h>
 #include <qt/clientmodel.h>
 #include <qt/guiutil.h>
-#include <qt/managenamespage.h>
 #include <qt/optionsmodel.h>
 #include <qt/overviewpage.h>
 #include <qt/platformstyle.h>
@@ -65,11 +63,6 @@ WalletView::WalletView(WalletModel* wallet_model, const PlatformStyle* _platform
     sendCoinsPage = new SendCoinsDialog(platformStyle);
     sendCoinsPage->setModel(walletModel);
 
-    buyNamesPage = new BuyNamesPage(platformStyle);
-    buyNamesPage->setModel(walletModel);
-    manageNamesPage = new ManageNamesPage(platformStyle);
-    manageNamesPage->setModel(walletModel);
-
     usedSendingAddressesPage = new AddressBookPage(platformStyle, AddressBookPage::ForEditing, AddressBookPage::SendingTab, this);
     usedSendingAddressesPage->setModel(walletModel->getAddressTableModel());
 
@@ -80,8 +73,6 @@ WalletView::WalletView(WalletModel* wallet_model, const PlatformStyle* _platform
     addWidget(transactionsPage);
     addWidget(receiveCoinsPage);
     addWidget(sendCoinsPage);
-    addWidget(buyNamesPage);
-    addWidget(manageNamesPage);
 
     connect(overviewPage, &OverviewPage::transactionClicked, this, &WalletView::transactionClicked);
     // Clicking on a transaction on the overview pre-selects the transaction on the transaction history page
@@ -100,8 +91,6 @@ WalletView::WalletView(WalletModel* wallet_model, const PlatformStyle* _platform
     connect(sendCoinsPage, &SendCoinsDialog::message, this, &WalletView::message);
     // Pass through messages from transactionView
     connect(transactionView, &TransactionView::message, this, &WalletView::message);
-    // Pass through messages from manageNamesPage
-    connect(manageNamesPage, &ManageNamesPage::message, this, &WalletView::message);
 
     connect(this, &WalletView::setPrivacy, overviewPage, &OverviewPage::setPrivacy);
     connect(this, &WalletView::setPrivacy, this, &WalletView::disableTransactionView);
@@ -175,16 +164,6 @@ void WalletView::gotoSendCoinsPage(QString addr)
 
     if (!addr.isEmpty())
         sendCoinsPage->setAddress(addr);
-}
-
-void WalletView::gotoBuyNamesPage()
-{
-    setCurrentWidget(buyNamesPage);
-}
-
-void WalletView::gotoManageNamesPage()
-{
-    setCurrentWidget(manageNamesPage);
 }
 
 void WalletView::gotoSignMessageTab(QString addr)

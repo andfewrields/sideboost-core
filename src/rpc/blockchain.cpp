@@ -40,7 +40,6 @@
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <protocol.h>
-#include <rpc/names.h>
 #include <rpc/protocol.h>
 #include <rpc/rawtransaction.h>
 #include <rpc/rawtransaction_util.h>
@@ -50,7 +49,6 @@
 #include <rpc/util.h>
 #include <script/descriptor.h>
 #include <script/interpreter.h>
-#include <script/names.h>
 #include <script/script.h>
 #include <script/signingprovider.h>
 #include <serialize.h>
@@ -1183,14 +1181,7 @@ static RPCMethod gettxoutsetinfo()
                         {RPCResult::Type::STR_HEX, "muhash", /*optional=*/true, "The serialized hash (only present if 'muhash' hash_type is chosen)"},
                         {RPCResult::Type::NUM, "transactions", /*optional=*/true, "The number of transactions with unspent outputs (not available when coinstatsindex is used)"},
                         {RPCResult::Type::NUM, "disk_size", /*optional=*/true, "The estimated size of the chainstate on disk (not available when coinstatsindex is used)"},
-                        {
-                            RPCResult::Type::OBJ, "amount", "Data about the money supply",
-                            {
-                                {RPCResult::Type::STR_AMOUNT, "coins", "Total amount of coins in the UTXO set"},
-                                {RPCResult::Type::STR_AMOUNT, "names", "Amount locked in active names"},
-                                {RPCResult::Type::STR_AMOUNT, "total", "Total amount in coins and names"},
-                            }
-                        },
+                        {RPCResult::Type::STR_AMOUNT, "total_amount", "The total amount of coins in the UTXO set"},
                         {RPCResult::Type::STR_AMOUNT, "total_unspendable_amount", /*optional=*/true, "The total amount of coins permanently excluded from the UTXO set (only available if coinstatsindex is used)"},
                         {RPCResult::Type::OBJ, "block_info", /*optional=*/true, "Info on amounts in the block at this block height (only available if coinstatsindex is used)",
                         {
@@ -1274,14 +1265,8 @@ static RPCMethod gettxoutsetinfo()
         if (hash_type == CoinStatsHashType::MUHASH) {
             ret.pushKV("muhash", stats.hashSerialized.GetHex());
         }
-
-        UniValue amount(UniValue::VOBJ);
-        CHECK_NONFATAL(stats.nCoinAmount.has_value() && stats.nNameAmount.has_value());
-        amount.pushKV("coins", ValueFromAmount(*stats.nCoinAmount));
-        amount.pushKV("names", ValueFromAmount(*stats.nNameAmount));
-        amount.pushKV("total", ValueFromAmount(*stats.nCoinAmount + *stats.nNameAmount));
-        ret.pushKV("amount", amount);
-
+        CHECK_NONFATAL(stats.total_amount.has_value());
+        ret.pushKV("total_amount", ValueFromAmount(stats.total_amount.value()));
         if (!stats.index_used) {
             ret.pushKV("transactions", stats.nTransactions);
             ret.pushKV("disk_size", stats.nDiskSize);
@@ -1359,7 +1344,6 @@ static RPCMethod gettxout()
                     {RPCResult::Type::STR_HEX, "hex", "The raw output script bytes, hex-encoded"},
                     {RPCResult::Type::STR, "type", "The type, eg pubkeyhash"},
                     {RPCResult::Type::STR, "address", /*optional=*/true, "The address (only if a well-defined address exists)"},
-                    NameOpResult,
                 }},
                 {RPCResult::Type::BOOL, "coinbase", "Coinbase or not"},
             }},
@@ -3461,8 +3445,7 @@ UniValue CreateRolledBackUTXOSnapshot(
                 strprintf("Failed to read block at height %d", block_index->nHeight));
         }
 
-        std::set<valtype> unexpiredNames;
-        WITH_LOCK(::cs_main, res = chainstate.DisconnectBlock(block, block_index, rollback_cache, unexpiredNames));
+        WITH_LOCK(::cs_main, res = chainstate.DisconnectBlock(block, block_index, rollback_cache));
         if (res == DISCONNECT_FAILED) {
             throw JSONRPCError(RPC_INTERNAL_ERROR,
                 strprintf("Failed to roll back block at height %d", block_index->nHeight));

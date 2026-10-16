@@ -250,8 +250,8 @@ void ParsePrevouts(const UniValue& prevTxsUnival, FlatSigningProvider* keystore,
             }
 
             // if redeemScript and private keys were given, add redeemScript to the keystore so it can be signed
-            const bool is_p2sh = scriptPubKey.IsPayToScriptHash(true);
-            const bool is_p2wsh = scriptPubKey.IsPayToWitnessScriptHash(true);
+            const bool is_p2sh = scriptPubKey.IsPayToScriptHash();
+            const bool is_p2wsh = scriptPubKey.IsPayToWitnessScriptHash();
             if (keystore && (is_p2sh || is_p2wsh)) {
                 RPCTypeCheckObj(prevOut,
                     {

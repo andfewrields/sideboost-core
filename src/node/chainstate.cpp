@@ -9,7 +9,6 @@
 #include <coins.h>
 #include <consensus/params.h>
 #include <kernel/caches.h>
-#include <names/common.h>
 #include <node/blockstorage.h>
 #include <sync.h>
 #include <tinyformat.h>
@@ -57,11 +56,6 @@ static ChainstateLoadResult CompleteChainstateInitialization(
     // in the past, but is now trying to run unpruned.
     if (chainman.m_blockman.m_have_pruned && !options.prune) {
         return {ChainstateLoadStatus::FAILURE, _("You need to rebuild the database using -reindex to go back to unpruned mode.  This will redownload the entire blockchain")};
-    }
-
-    // Check for changed -namehistory state
-    if (options.nameHistory != fNameHistory) {
-        return {ChainstateLoadStatus::FAILURE, _("You need to rebuild the database using -reindex to change the name-history flag.")};
     }
 
     // At this point blocktree args are consistent with what's on disk.

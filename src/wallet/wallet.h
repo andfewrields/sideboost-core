@@ -11,14 +11,12 @@
 #include <interfaces/chain.h>
 #include <interfaces/handler.h>
 #include <kernel/cs_main.h>
-#include <names/common.h>
 #include <node/types.h>
 #include <outputtype.h>
 #include <policy/feerate.h>
 #include <primitives/transaction.h>
 #include <primitives/transaction_identifier.h>
 #include <script/interpreter.h>
-#include <script/names.h>
 #include <script/script.h>
 #include <support/allocators/secure.h>
 #include <sync.h>
@@ -302,10 +300,6 @@ struct CRecipient
     CTxDestination dest;
     CAmount nAmount;
     bool fSubtractFeeFromAmount;
-
-    /** The name prefix script, which gets added to the CTxDestination
-        set, if this is a name operation.  */
-    CScript nameScript;
 };
 
 class WalletRescanReserver; //forward declarations for ScanForWalletTransactions/RescanFromTime
@@ -460,8 +454,6 @@ private:
 
     //! Update mempool conflicts for TRUC sibling transactions
     void UpdateTrucSiblingConflicts(const CWalletTx& parent_wtx, const Txid& child_txid, bool add_conflict) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
-
-    void EffectTransactionQueue();
 
 public:
     /**
@@ -808,14 +800,12 @@ public:
     bool IsMine(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Returns amount of debit, i.e. the amount leaving this wallet due to this input */
     CAmount GetDebit(const CTxIn& txin) const;
-    std::optional<CNameScript> GetNameDebit(const CTxIn& txin) const;
     bool IsMine(const CTxOut& txout) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool IsMine(const CTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool IsMine(const COutPoint& outpoint) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** should probably be renamed to IsRelevantToMe */
     bool IsFromMe(const CTransaction& tx) const;
     CAmount GetDebit(const CTransaction& tx) const;
-    std::optional<CNameScript> GetNameDebit(const CTransaction& tx) const;
 
     DBErrors PopulateWalletFromDB(bilingual_str& error, std::vector<bilingual_str>& warnings);
 
@@ -1112,15 +1102,6 @@ public:
 
     //! Disconnect chain notifications and wait for all notifications to be processed
     void DisconnectChainNotifications();
-
-    std::map<Txid, CMutableTransaction> queuedTransactionMap;
-
-    bool QueuedTransactionExists(const Txid &txid) const;
-    bool WriteQueuedTransaction(
-            const Txid &txid,
-            const CMutableTransaction &tx);
-    bool EraseQueuedTransaction(const Txid &txid);
-    bool GetQueuedTransaction(const Txid &txid, CMutableTransaction *data=nullptr) const;
 };
 
 /**

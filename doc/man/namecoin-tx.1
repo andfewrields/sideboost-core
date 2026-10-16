@@ -28,17 +28,9 @@ Print this help message and exit (also \fB\-h\fR or \-?)
 .IP
 Select JSON output
 .HP
-\fB\-nameencoding\fR
-.IP
-The encoding to use for names in the JSON output (default: ascii)
-.HP
 \fB\-txid\fR
 .IP
 Output only the hex\-encoded transaction id of the resultant transaction.
-.HP
-\fB\-valueencoding\fR
-.IP
-The encoding to use for values in the JSON output (default: ascii)
 .HP
 \fB\-version\fR
 .IP
@@ -98,21 +90,6 @@ Add input to TX
 locktime=N
 .IP
 Set TX lock time to N
-.IP
-namefirstupdate=N:NAME:VALUE:RAND
-.IP
-Turns the existing output N into a NAME_FIRSTUPDATE operation with the
-given hex\-encoded NAME, VALUE and RAND.
-.IP
-namenew=N:NAME:RAND
-.IP
-Turns the existing output N into a NAME_NEW operation with the given
-hex\-encoded NAME and RAND.
-.IP
-nameupdate=N:NAME:VALUE
-.IP
-Turns the existing output N into a NAME_UPDATE operation with the given
-hex\-encoded NAME and VALUE.
 .IP
 nversion=N
 .IP

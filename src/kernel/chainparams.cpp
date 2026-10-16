@@ -34,21 +34,6 @@
 
 using namespace util::hex_literals;
 
-bool CChainParams::IsHistoricBug(const Txid& txid, unsigned nHeight, BugType& type) const
-{
-    const std::pair<unsigned, uint256> key(nHeight, txid.ToUint256());
-    std::map<std::pair<unsigned, uint256>, BugType>::const_iterator mi;
-
-    mi = mapHistoricBugs.find (key);
-    if (mi != mapHistoricBugs.end ())
-    {
-        type = mi->second;
-        return true;
-    }
-
-    return false;
-}
-
 static CBlock CreateGenesisBlock(const CScript& genesisInputScript, const CScript& genesisOutputScript, uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
 {
     CMutableTransaction txNew;
@@ -192,9 +177,6 @@ static void SetSideBoostConsensus(Consensus::Params& consensus)
     consensus.nAuxpowStartHeight = 0;
     consensus.fStrictChainId = true;
     consensus.nLegacyBlocksBefore = 0;
-
-    /* Name rules are kept unchanged for now (to be removed later).  */
-    consensus.rules.reset(new Consensus::MainNetConsensus());
 }
 
 /**
@@ -260,13 +242,6 @@ public:
             .commitment_period = 616,
             .redownload_buffer_size = 16199, // 16199/616 = ~26.3 commitments
         };
-
-        assert(mapHistoricBugs.empty());
-    }
-
-    int DefaultCheckNameDB () const override
-    {
-        return -1;
     }
 };
 
@@ -324,13 +299,6 @@ public:
             .commitment_period = 616,
             .redownload_buffer_size = 16199, // 16199/616 = ~26.3 commitments
         };
-
-        assert(mapHistoricBugs.empty());
-    }
-
-    int DefaultCheckNameDB () const override
-    {
-        return -1;
     }
 };
 
@@ -388,13 +356,6 @@ public:
             .commitment_period = 616,
             .redownload_buffer_size = 16199, // 16199/616 = ~26.3 commitments
         };
-
-        assert(mapHistoricBugs.empty());
-    }
-
-    int DefaultCheckNameDB () const override
-    {
-        return -1;
     }
 };
 
@@ -481,11 +442,6 @@ public:
             .redownload_buffer_size = 16199, // 16199/616 = ~26.3 commitments
         };
     }
-
-    int DefaultCheckNameDB () const override
-    {
-        return -1;
-    }
 };
 
 /**
@@ -528,7 +484,6 @@ public:
            Only the default ports differ, to avoid clashing with an ECX (or
            Bitcoin) regtest node on the same machine.  */
         consensus.nAuxpowChainId = 0x0001;
-        consensus.rules.reset(new Consensus::RegTestConsensus());
 
         pchMessageStart[0] = 0xfa;
         pchMessageStart[1] = 0xbf;
@@ -595,13 +550,6 @@ public:
             .commitment_period = 275,
             .redownload_buffer_size = 7017, // 7017/275 = ~25.5 commitments
         };
-
-        assert(mapHistoricBugs.empty());
-    }
-
-    int DefaultCheckNameDB () const override
-    {
-        return 0;
     }
 };
 

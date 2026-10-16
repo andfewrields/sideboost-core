@@ -4,8 +4,6 @@
 
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
-#include <names/encoding.h>
-#include <script/names.h>
 #include <util/check.h>
 #include <wallet/receive.h>
 #include <wallet/transaction.h>
@@ -35,8 +33,6 @@ CAmount OutputGetCredit(const CWallet& wallet, const CTxOut& txout)
 {
     if (!MoneyRange(txout.nValue))
         throw std::runtime_error(std::string(__func__) + ": value out of range");
-    if (CNameScript::isNameScript (txout.scriptPubKey))
-        return 0;
     LOCK(wallet.cs_wallet);
     return (wallet.IsMine(txout) ? txout.nValue : 0);
 }
@@ -53,27 +49,6 @@ CAmount TxGetCredit(const CWallet& wallet, const CTransaction& tx)
     return nCredit;
 }
 
-std::optional<CNameScript> GetNameCredit(const CWallet& wallet, const CTxOut& txout)
-{
-    CNameScript op(txout.scriptPubKey);
-    if (!op.isNameOp ())
-        return {};
-    LOCK(wallet.cs_wallet);
-    return (wallet.IsMine(txout) ? std::optional<CNameScript>{op} : std::nullopt);
-}
-
-std::optional<CNameScript> GetNameCredit(const CWallet& wallet, const CTransaction& tx)
-{
-    std::optional<CNameScript> nCredit;
-    for (const CTxOut& txout : tx.vout)
-    {
-        nCredit = GetNameCredit(wallet, txout);
-        if (nCredit)
-            break;
-    }
-    return nCredit;
-}
-
 bool ScriptIsChange(const CWallet& wallet, const CScript& script)
 {
     // TODO: fix handling of 'change' outputs. The assumption is that any
@@ -86,11 +61,6 @@ bool ScriptIsChange(const CWallet& wallet, const CScript& script)
     AssertLockHeld(wallet.cs_wallet);
     if (wallet.IsMine(script))
     {
-        // Name operation outputs should NOT be considered change.
-        // They are intentional outputs with special semantics.
-        if (CNameScript::isNameScript(script))
-            return false;
-
         CTxDestination address;
         if (!ExtractDestination(script, address))
             return true;
@@ -149,24 +119,12 @@ CAmount CachedTxGetCredit(const CWallet& wallet, const CWalletTx& wtx, bool avoi
     return GetCachableAmount(wallet, wtx, CWalletTx::CREDIT, avoid_reuse);
 }
 
-std::optional<CNameScript> TxGetNameCredit(const CWallet& wallet, const CWalletTx& wtx)
-{
-    // TODO: Caching like what GetCredit does.
-    return GetNameCredit(wallet, *wtx.GetTx ());
-}
-
 CAmount CachedTxGetDebit(const CWallet& wallet, const CWalletTx& wtx, bool avoid_reuse)
 {
     if (wtx.GetTx()->vin.empty())
         return 0;
 
     return GetCachableAmount(wallet, wtx, CWalletTx::DEBIT, avoid_reuse);
-}
-
-std::optional<CNameScript> TxGetNameDebit(const CWallet& wallet, const CWalletTx& wtx)
-{
-    // TODO: Caching like what GetDebit does.
-    return wallet.GetNameDebit(*wtx.GetTx ());
 }
 
 CAmount CachedTxGetChange(const CWallet& wallet, const CWalletTx& wtx)
@@ -191,7 +149,7 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
     CAmount nDebit = CachedTxGetDebit(wallet, wtx, /*avoid_reuse=*/false);
     if (nDebit > 0) // debit>0 means we signed/sent this transaction
     {
-        CAmount nValueOut = wtx.GetTx()->GetValueOut(true);
+        CAmount nValueOut = wtx.GetTx()->GetValueOut();
         nFee = nDebit - nValueOut;
     }
 
@@ -201,14 +159,12 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
     {
         const CTxOut& txout = wtx.GetTx()->vout[i];
         bool ismine = wallet.IsMine(txout);
-        const CNameScript nameOp(txout.scriptPubKey);
         // Only need to handle txouts if AT LEAST one of these is true:
         //   1) they debit from us (sent)
         //   2) the output is to us (received)
         if (nDebit > 0)
         {
-            // Don't report 'change' txouts, but keep names in all cases
-            if (!include_change && OutputIsChange(wallet, txout) && !nameOp.isNameOp())
+            if (!include_change && OutputIsChange(wallet, txout))
                 continue;
         }
         else if (!ismine)
@@ -224,25 +180,14 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
             address = CNoDestination();
         }
 
-        COutputEntry output = {address, "", txout.nValue, (int)i};
-
-        // If we have a name script, set the "name" parameter.
-        if (nameOp.isNameOp())
-        {
-            if (nameOp.isAnyUpdate())
-                output.nameOp = "update: " + EncodeNameForMessage(nameOp.getOpName());
-            else
-                output.nameOp = "new: " + HexStr(nameOp.getOpHash());
-            output.amount = 0;
-        }
+        COutputEntry output = {address, txout.nValue, (int)i};
 
         // If we are debited by the transaction, add the output as a "sent" entry
         if (nDebit > 0)
             listSent.push_back(output);
 
         // If we are receiving the output, add it as a "received" entry
-        // For names, only do this if we did not also add it as "sent"
-        if (ismine && (!nameOp.isNameOp() || !(nDebit > 0)))
+        if (ismine)
             listReceived.push_back(output);
     }
 
@@ -310,9 +255,6 @@ Balance GetBalance(const CWallet& wallet, const int min_depth, bool avoid_reuse,
             const bool is_trusted{CachedTxIsTrusted(wallet, wtx, trusted_parents)};
             const int tx_depth{wallet.GetTxDepthInMainChain(wtx)};
 
-            if (CNameScript::isNameScript(txo.GetTxOut().scriptPubKey))
-                continue;
-
             bool nonmempool_spent = false;
             switch (wallet.HowSpent(outpoint)) {
             case CWallet::SpendType::CONFIRMED:
@@ -361,9 +303,6 @@ std::map<CTxDestination, CAmount> GetAddressBalances(const CWallet& wallet)
         std::set<Txid> trusted_parents;
         for (const auto& [outpoint, txo] : wallet.GetTXOs()) {
             const CWalletTx& wtx = txo.GetWalletTx();
-
-            if (CNameScript::isNameScript(txo.GetTxOut().scriptPubKey))
-                continue;
 
             if (!CachedTxIsTrusted(wallet, wtx, trusted_parents)) continue;
             if (wallet.IsTxImmatureCoinBase(wtx)) continue;

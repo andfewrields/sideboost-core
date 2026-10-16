@@ -198,101 +198,7 @@ void CCoinsViewCache::SetBestBlock(const uint256& in_block_hash)
     m_block_hash = in_block_hash;
 }
 
-bool CCoinsViewCache::GetName(const valtype &name, CNameData& data) const {
-    if (cacheNames.isDeleted(name))
-        return false;
-    if (cacheNames.get(name, data))
-        return true;
-
-    /* Note: This does not attempt to cache name queries.  The cache
-       only keeps track of changes!  */
-
-    return base->GetName(name, data);
-}
-
-bool CCoinsViewCache::GetNameHistory(const valtype &name, CNameHistory& data) const {
-    if (cacheNames.getHistory(name, data))
-        return true;
-
-    /* Note: This does not attempt to cache backend queries.  The cache
-       only keeps track of changes!  */
-
-    return base->GetNameHistory(name, data);
-}
-
-bool CCoinsViewCache::GetNamesForHeight(unsigned nHeight, std::set<valtype>& names) const {
-    /* Query the base view first, and then apply the cached changes (if
-       there are any).  */
-
-    if (!base->GetNamesForHeight(nHeight, names))
-        return false;
-
-    cacheNames.updateNamesForHeight(nHeight, names);
-    return true;
-}
-
-CNameIterator* CCoinsViewCache::IterateNames() const {
-    return cacheNames.iterateNames(base->IterateNames());
-}
-
-/* undo is set if the change is due to disconnecting blocks / going back in
-   time.  The ordinary case (!undo) means that we update the name normally,
-   going forward in time.  This is important for keeping track of the
-   name history.  */
-void CCoinsViewCache::SetName(const valtype &name, const CNameData& data, bool undo) {
-    CNameData oldData;
-    if (GetName(name, oldData))
-    {
-        cacheNames.removeExpireIndex(name, oldData.getHeight());
-
-        /* Update the name history.  If we are undoing, we expect that
-           the top history item matches the data being set now.  If we
-           are not undoing, push the overwritten data onto the history stack.
-           Note that we only have to do this if the name already existed
-           in the database.  Otherwise, no special action is required
-           for the name history.  */
-        if (fNameHistory)
-        {
-            CNameHistory history;
-            if (!GetNameHistory(name, history))
-            {
-                /* Ensure that the history stack is indeed (still) empty
-                   and was not modified by the failing GetNameHistory call.  */
-                assert(history.empty());
-            }
-
-            if (undo)
-                history.pop(data);
-            else
-                history.push(oldData);
-
-            cacheNames.setHistory(name, history);
-        }
-    } else
-        assert (!undo);
-
-    cacheNames.set(name, data);
-    cacheNames.addExpireIndex(name, data.getHeight());
-}
-
-void CCoinsViewCache::DeleteName(const valtype &name) {
-    CNameData oldData;
-    if (GetName(name, oldData))
-        cacheNames.removeExpireIndex(name, oldData.getHeight());
-    else
-        assert(false);
-
-    if (fNameHistory)
-    {
-        /* When deleting a name, the history should already be clean.  */
-        CNameHistory history;
-        assert (!GetNameHistory(name, history) || history.empty());
-    }
-
-    cacheNames.remove(name);
-}
-
-void CCoinsViewCache::BatchWrite(CoinsViewCacheCursor& cursor, const uint256& in_block_hash, const CNameCache& names)
+void CCoinsViewCache::BatchWrite(CoinsViewCacheCursor& cursor, const uint256& in_block_hash)
 {
     for (auto it{cursor.Begin()}; it != cursor.End(); it = cursor.NextAndMaybeErase(*it)) {
         if (!it->second.IsDirty()) { // TODO a cursor can only contain dirty entries
@@ -361,19 +267,12 @@ void CCoinsViewCache::BatchWrite(CoinsViewCacheCursor& cursor, const uint256& in
         }
     }
     SetBestBlock(in_block_hash);
-    cacheNames.apply(names);
 }
 
 void CCoinsViewCache::Flush(bool reallocate_cache)
 {
-    /* This function is called when validating the name mempool, and BatchWrite
-       actually fails if hashBlock is not set.  Thus we have to make sure here
-       that it is a valid no-op when nothing is cached.  */
-    if (m_block_hash.IsNull() && cacheCoins.empty() && cacheNames.empty())
-        return;
-
     auto cursor{CoinsViewCacheCursor(m_dirty_count, m_sentinel, cacheCoins, /*will_erase=*/true)};
-    base->BatchWrite(cursor, m_block_hash, cacheNames);
+    base->BatchWrite(cursor, m_block_hash);
     Assume(m_dirty_count == 0);
     cacheCoins.clear();
     if (reallocate_cache) {
@@ -385,7 +284,7 @@ void CCoinsViewCache::Flush(bool reallocate_cache)
 void CCoinsViewCache::Sync()
 {
     auto cursor{CoinsViewCacheCursor(m_dirty_count, m_sentinel, cacheCoins, /*will_erase=*/false)};
-    base->BatchWrite(cursor, m_block_hash, cacheNames);
+    base->BatchWrite(cursor, m_block_hash);
     Assume(m_dirty_count == 0);
     if (m_sentinel.second.Next() != &m_sentinel) {
         /* BatchWrite must clear flags of all entries */
@@ -399,7 +298,6 @@ void CCoinsViewCache::Reset() noexcept
     cachedCoinsUsage = 0;
     m_dirty_count = 0;
     SetBestBlock(uint256::ZERO);
-    cacheNames.clear();
 }
 
 void CCoinsViewCache::Uncache(const COutPoint& hash)
@@ -418,7 +316,6 @@ void CCoinsViewCache::Uncache(const COutPoint& hash)
 }
 
 unsigned int CCoinsViewCache::GetCacheSize() const {
-    // Do not take name operations into account here.
     return cacheCoins.size();
 }
 

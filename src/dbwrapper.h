@@ -118,17 +118,6 @@ public:
         WriteImpl(m_key_scratch, m_value_scratch);
     }
 
-    /* Write an empty value.  This is used for the expire-index
-       in the name database.  */
-    template <typename K>
-    void Write(const K& key)
-    {
-        ScopedDataStreamUsage scoped_key{m_key_scratch}, scoped_value{m_value_scratch};
-        m_key_scratch << key;
-        /* We leave the ssValue intentionally empty.  */
-        WriteImpl(m_key_scratch, m_value_scratch);
-    }
-
     template <typename K>
     void Erase(const K& key)
     {

@@ -62,7 +62,7 @@ class GetBlocksActivityTest(BitcoinTestFramework):
 
         outspk = activity['output_spk']
 
-        assert_equal(outspk['asm'][:12], 'OP_NAME_NEW ')
+        assert_equal(outspk['asm'][:2], '1 ')
         assert_equal(outspk['desc'].split('(')[0], 'rawtr')
         assert_equal(outspk['hex'], spk_1.hex())
         assert_equal(outspk['address'], addr_1)

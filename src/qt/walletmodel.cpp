@@ -8,7 +8,6 @@
 #include <qt/clientmodel.h>
 #include <qt/guiconstants.h>
 #include <qt/guiutil.h>
-#include <qt/nametablemodel.h>
 #include <qt/optionsmodel.h>
 #include <qt/paymentserver.h>
 #include <qt/recentrequeststablemodel.h>
@@ -51,7 +50,6 @@ WalletModel::WalletModel(std::unique_ptr<interfaces::Wallet> wallet, ClientModel
 {
     addressTableModel = new AddressTableModel(this);
     transactionTableModel = new TransactionTableModel(platformStyle, this);
-    nameTableModel = new NameTableModel(platformStyle, this);
     recentRequestsTableModel = new RecentRequestsTableModel(this);
 
     subscribeToCoreSignals();
@@ -294,12 +292,7 @@ AddressTableModel* WalletModel::getAddressTableModel() const
     return addressTableModel;
 }
 
-NameTableModel *WalletModel::getNameTableModel() const
-{
-    return nameTableModel;
-}
-
-TransactionTableModel *WalletModel::getTransactionTableModel() const
+TransactionTableModel* WalletModel::getTransactionTableModel() const
 {
     return transactionTableModel;
 }

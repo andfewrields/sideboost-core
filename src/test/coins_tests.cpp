@@ -17,7 +17,6 @@
 #include <util/byte_units.h>
 #include <util/check.h>
 #include <util/strencodings.h>
-#include <validation.h>
 
 #include <map>
 #include <string>
@@ -26,10 +25,9 @@
 
 #include <boost/test/unit_test.hpp>
 
-class CNameCache;
-
 using namespace util::hex_literals;
 
+int ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const COutPoint& out);
 void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight);
 
 namespace
@@ -52,7 +50,7 @@ public:
 
     uint256 GetBestBlock() const override { return hashBestBlock_; }
 
-    void BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash, const CNameCache& names) override
+    void BatchWrite(CoinsViewCacheCursor& cursor, const uint256& block_hash) override
     {
         for (auto it{cursor.Begin()}; it != cursor.End(); it = cursor.NextAndMaybeErase(*it)){
             if (it->second.IsDirty()) {
@@ -647,7 +645,7 @@ static void WriteCoinsViewEntry(CCoinsView& view, const MaybeCoin& cache_coin)
     if (cache_coin) InsertCoinsMapEntry(map, sentinel, *cache_coin);
     size_t dirty_count{cache_coin && cache_coin->IsDirty()};
     auto cursor{CoinsViewCacheCursor(dirty_count, sentinel, map, /*will_erase=*/true)};
-    view.BatchWrite(cursor, {}, {});
+    view.BatchWrite(cursor, {});
     BOOST_CHECK_EQUAL(dirty_count, 0U);
 }
 

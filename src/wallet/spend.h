@@ -87,10 +87,6 @@ struct CoinFilterParams {
     // When true, filter unconfirmed coins by whether their
     // version's TRUCness matches what is set by CCoinControl.
     bool check_version_trucness{true};
-    /** If -1 (the default), do not include name outputs.  Otherwise,
-     *  include name outputs (apart from name_new) that are up to the given
-     *  depth in the chain (i.e. not expired).  */
-    int64_t name_max_depth{-1};
 };
 
 /**
@@ -163,7 +159,7 @@ util::Result<SelectionResult> ChooseSelectionResult(interfaces::Chain& chain, co
  * Fetch and validate coin control selected inputs.
  * Coins could be internal (from the wallet) or external.
 */
-util::Result<CoinsResult> FetchSelectedInputs(const CWallet& wallet, const CTxIn* withNameInput, const CCoinControl& coin_control,
+util::Result<CoinsResult> FetchSelectedInputs(const CWallet& wallet, const CCoinControl& coin_control,
                                                     const CoinSelectionParams& coin_selection_params) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
 
 /**
@@ -200,7 +196,7 @@ void DiscourageFeeSniping(CMutableTransaction& tx, FastRandomContext& rng_fast, 
  * selected by SelectCoins(); Also create the change output, when needed
  * @note passing change_pos as std::nullopt will result in setting a random position
  */
-util::Result<CreatedTransactionResult> CreateTransaction(CWallet& wallet, const std::vector<CRecipient>& vecSend, const CTxIn* withInput, std::optional<unsigned int> change_pos, const CCoinControl& coin_control, bool sign = true);
+util::Result<CreatedTransactionResult> CreateTransaction(CWallet& wallet, const std::vector<CRecipient>& vecSend, std::optional<unsigned int> change_pos, const CCoinControl& coin_control, bool sign = true);
 
 /**
  * Insert additional inputs into the transaction by

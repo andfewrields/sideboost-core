@@ -16,7 +16,6 @@
 #include <policy/truc_policy.h>
 #include <primitives/transaction.h>
 #include <primitives/transaction_identifier.h>
-#include <script/names.h>
 #include <script/script.h>
 #include <script/signingprovider.h>
 #include <script/solver.h>
@@ -67,14 +66,6 @@ static bool UseMaxSig(const std::optional<CTxIn>& txin, const CCoinControl* coin
     return coin_control && txin && coin_control->IsExternalSelected(txin->prevout);
 }
 
-/** Strips the name prefix off the script of a txout.  This is irrelevant
-    for fee calculation / signed size.  */
-static CScript StripNamePrefix(const CTxOut& txo)
-{
-    const CNameScript nameOp(txo.scriptPubKey);
-    return nameOp.getAddress();
-}
-
 /** Get the size of an input (in witness units) once it's signed.
  *
  * @param desc The output script descriptor of the coin spent by this input.
@@ -110,7 +101,7 @@ int CalculateMaximumSignedInputSize(const CTxOut& txout, const COutPoint outpoin
 {
     if (!provider) return -1;
 
-    if (const auto desc = InferDescriptor(StripNamePrefix(txout), *provider)) {
+    if (const auto desc = InferDescriptor(txout.scriptPubKey, *provider)) {
         if (const auto weight = MaxInputWeight(*desc, CTxIn{outpoint}, coin_control, true, can_grind_r)) {
             return static_cast<int>(GetVirtualTransactionSize(*weight, 0, 0));
         }
@@ -151,7 +142,7 @@ static std::optional<int64_t> GetSignedTxinWeight(const CWallet* wallet, const C
     }
 
     // Otherwise, use the maximum satisfaction size provided by the descriptor.
-    std::unique_ptr<Descriptor> desc{GetDescriptor(wallet, coin_control, StripNamePrefix(txo))};
+    std::unique_ptr<Descriptor> desc{GetDescriptor(wallet, coin_control, txo.scriptPubKey)};
     if (desc) return MaxInputWeight(*desc, {txin}, coin_control, tx_is_segwit, can_grind_r);
 
     return {};
@@ -279,17 +270,13 @@ static OutputType GetOutputType(TxoutType type, bool is_from_p2sh)
 
 // Fetch and validate the coin control selected inputs.
 // Coins could be internal (from the wallet) or external.
-util::Result<CoinsResult> FetchSelectedInputs(const CWallet& wallet, const CTxIn* withNameInput, const CCoinControl& coin_control,
+util::Result<CoinsResult> FetchSelectedInputs(const CWallet& wallet, const CCoinControl& coin_control,
                                             const CoinSelectionParams& coin_selection_params)
 {
     CoinsResult result;
-    std::vector<COutPoint> vPresetInputs = coin_control.ListSelected();
-    if (withNameInput != nullptr) {
-        vPresetInputs.push_back(withNameInput->prevout);
-    }
     const bool can_grind_r = wallet.CanGrindR();
-    std::map<COutPoint, CAmount> map_of_bump_fees = wallet.chain().calculateIndividualBumpFees(vPresetInputs, coin_selection_params.m_effective_feerate);
-    for (const COutPoint& outpoint : vPresetInputs) {
+    std::map<COutPoint, CAmount> map_of_bump_fees = wallet.chain().calculateIndividualBumpFees(coin_control.ListSelected(), coin_selection_params.m_effective_feerate);
+    for (const COutPoint& outpoint : coin_control.ListSelected()) {
         int64_t input_bytes = coin_control.GetInputWeight(outpoint).value_or(-1);
         if (input_bytes != -1) {
             input_bytes = GetVirtualTransactionSize(input_bytes, 0, 0);
@@ -470,19 +457,6 @@ CoinsResult AvailableCoins(const CWallet& wallet,
         // Because CalculateMaximumSignedInputSize infers a solvable descriptor to get the satisfaction size,
         // it is safe to assume that this input is solvable if input_bytes is greater than -1.
         bool solvable = input_bytes > -1;
-
-        /* Check if this is a name script, and if so, apply filtering
-           based on the relevant user options.  */
-        const CNameScript nameOp(txo.GetTxOut().scriptPubKey);
-        if (nameOp.isNameOp ()) {
-            if (params.name_max_depth < 0)
-                continue;
-
-            /* name_new's don't expire, but all other outputs become
-               unspendable if too deep in the chain.  */
-            if (nameOp.isAnyUpdate () && nDepth > params.name_max_depth)
-                continue;
-        }
 
         // Obtain script type
         std::vector<std::vector<uint8_t>> script_solutions;
@@ -1083,8 +1057,7 @@ void DiscourageFeeSniping(CMutableTransaction& tx, FastRandomContext& rng_fast,
 
 uint64_t GetSerializeSizeForRecipient(const CRecipient& recipient)
 {
-    const auto fullScript = CNameScript::AddNamePrefix (GetScriptForDestination(recipient.dest), recipient.nameScript);
-    return ::GetSerializeSize(CTxOut(recipient.nAmount, fullScript));
+    return ::GetSerializeSize(CTxOut(recipient.nAmount, GetScriptForDestination(recipient.dest)));
 }
 
 bool IsDust(const CRecipient& recipient, const CFeeRate& dustRelayFee)
@@ -1095,7 +1068,6 @@ bool IsDust(const CRecipient& recipient, const CFeeRate& dustRelayFee)
 static util::Result<CreatedTransactionResult> CreateTransactionInternal(
         CWallet& wallet,
         const std::vector<CRecipient>& vecSend,
-        const CTxIn* withInput,
         std::optional<unsigned int> change_pos,
         const CCoinControl& coin_control,
         bool sign) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet)
@@ -1125,7 +1097,6 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     const OutputType change_type = wallet.TransactionChangeType(coin_control.m_change_type ? *coin_control.m_change_type : wallet.m_default_change_type, vecSend);
     ReserveDestination reservedest(&wallet, change_type);
     unsigned int outputs_to_subtract_fee_from = 0; // The number of outputs which we are subtracting the fee from
-    bool isNamecoin = false;
     for (const auto& recipient : vecSend) {
         if (IsDust(recipient, wallet.chain().relayDustFee())) {
             return util::Error{_("Transaction amount too small")};
@@ -1139,17 +1110,7 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
             outputs_to_subtract_fee_from++;
             coin_selection_params.m_subtract_fee_outputs = true;
         }
-
-        if (CNameScript::isNameScript (recipient.nameScript))
-            isNamecoin = true;
     }
-
-    /* It can happen that the transaction has already a Namecoin version, for
-       instance, when it is being funded via FundTransaction, where the nVersion
-       of the original transaction is copied via the coin_control.  This is fine
-       and will just do nothing then.  */
-    if (isNamecoin)
-        txNew.SetNamecoin();
 
     // Create change script that will be used if we need change
     CScript scriptChange;
@@ -1250,8 +1211,8 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
 
     // Fetch manually selected coins
     CoinsResult preset_inputs;
-    if (coin_control.HasSelected() || withInput != nullptr) {
-        auto res_fetch_inputs = FetchSelectedInputs(wallet, withInput, coin_control, coin_selection_params);
+    if (coin_control.HasSelected()) {
+        auto res_fetch_inputs = FetchSelectedInputs(wallet, coin_control, coin_selection_params);
         if (!res_fetch_inputs) return util::Error{util::ErrorString(res_fetch_inputs)};
         preset_inputs = *res_fetch_inputs;
     }
@@ -1300,8 +1261,7 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     txNew.vout.reserve(vecSend.size() + 1); // + 1 because of possible later insert
     for (const auto& recipient : vecSend)
     {
-        const auto fullScript = CNameScript::AddNamePrefix(GetScriptForDestination(recipient.dest), recipient.nameScript);
-        txNew.vout.emplace_back(recipient.nAmount, fullScript);
+        txNew.vout.emplace_back(recipient.nAmount, GetScriptForDestination(recipient.dest));
     }
     const CAmount change_amount = result.GetChange(coin_selection_params.min_viable_change, coin_selection_params.m_change_fee);
     if (change_amount > 0) {
@@ -1490,7 +1450,6 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
 util::Result<CreatedTransactionResult> CreateTransaction(
         CWallet& wallet,
         const std::vector<CRecipient>& vecSend,
-        const CTxIn* withInput,
         std::optional<unsigned int> change_pos,
         const CCoinControl& coin_control,
         bool sign)
@@ -1505,7 +1464,7 @@ util::Result<CreatedTransactionResult> CreateTransaction(
 
     LOCK(wallet.cs_wallet);
 
-    auto res = CreateTransactionInternal(wallet, vecSend, withInput, change_pos, coin_control, sign);
+    auto res = CreateTransactionInternal(wallet, vecSend, change_pos, coin_control, sign);
     TRACEPOINT(coin_selection, normal_create_tx_internal,
            wallet.GetName().c_str(),
            bool(res),
@@ -1524,7 +1483,7 @@ util::Result<CreatedTransactionResult> CreateTransaction(
             ExtractDestination(txr_ungrouped.tx->vout[*txr_ungrouped.change_pos].scriptPubKey, tmp_cc.destChange);
         }
 
-        auto txr_grouped = CreateTransactionInternal(wallet, vecSend, withInput, change_pos, tmp_cc, sign);
+        auto txr_grouped = CreateTransactionInternal(wallet, vecSend, change_pos, tmp_cc, sign);
         // if fee of this alternative one is within the range of the max fee, we use this one
         const bool use_aps{txr_grouped.has_value() ? (txr_grouped->fee <= txr_ungrouped.fee + wallet.m_max_aps_fee) : false};
         TRACEPOINT(coin_selection, aps_create_tx_internal,
@@ -1582,7 +1541,7 @@ util::Result<CreatedTransactionResult> FundTransaction(CWallet& wallet, const CM
         preset_txin.SetScriptWitness(txin.scriptWitness);
     }
 
-    auto res = CreateTransaction(wallet, vecSend, nullptr, change_pos, coinControl, false);
+    auto res = CreateTransaction(wallet, vecSend, change_pos, coinControl, false);
     if (!res) {
         return res;
     }

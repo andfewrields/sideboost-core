@@ -76,7 +76,6 @@ add_library(bitcoin_consensus STATIC EXCLUDE_FROM_ALL
   primitives/transaction.cpp
   pubkey.cpp
   script/interpreter.cpp
-  script/names.cpp
   script/script.cpp
   script/script_error.cpp
   uint256.cpp
@@ -127,9 +126,6 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   key_io.cpp
   merkleblock.cpp
   musig.cpp
-  names/applications.cpp
-  names/common.cpp
-  names/encoding.cpp
   net_permissions.cpp
   net_types.cpp
   netaddress.cpp
@@ -205,7 +201,6 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   index/base.cpp
   index/blockfilterindex.cpp
   index/coinstatsindex.cpp
-  index/namehash.cpp
   index/txindex.cpp
   index/txospenderindex.cpp
   init.cpp
@@ -217,8 +212,6 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   kernel/disconnected_transactions.cpp
   kernel/mempool_removal_reason.cpp
   mapport.cpp
-  names/main.cpp
-  names/mempool.cpp
   net.cpp
   net_processing.cpp
   netgroup.cpp
@@ -271,7 +264,6 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   rpc/fees.cpp
   rpc/mempool.cpp
   rpc/mining.cpp
-  rpc/names.cpp
   rpc/net.cpp
   rpc/node.cpp
   rpc/output_script.cpp

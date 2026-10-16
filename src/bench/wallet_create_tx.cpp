@@ -163,7 +163,7 @@ static void WalletCreateTx(benchmark::Bench& bench, const OutputType output_type
 
     bench.run([&] {
         LOCK(wallet.cs_wallet);
-        const auto& tx_res = CreateTransaction(wallet, recipients, nullptr, /*change_pos=*/std::nullopt, coin_control);
+        const auto& tx_res = CreateTransaction(wallet, recipients, /*change_pos=*/std::nullopt, coin_control);
         assert(tx_res);
     });
 }

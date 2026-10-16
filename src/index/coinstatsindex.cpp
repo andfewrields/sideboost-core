@@ -47,8 +47,7 @@ struct DBVal {
     uint256 muhash{uint256::ZERO};
     uint64_t transaction_output_count{0};
     uint64_t bogo_size{0};
-    CAmount coin_amount{0};
-    CAmount name_amount{0};
+    CAmount total_amount{0};
     CAmount total_subsidy{0};
     arith_uint256 total_prevout_spent_amount{0};
     arith_uint256 total_new_outputs_ex_coinbase_amount{0};
@@ -68,8 +67,7 @@ struct DBVal {
         READWRITE(obj.muhash);
         READWRITE(obj.transaction_output_count);
         READWRITE(obj.bogo_size);
-        READWRITE(obj.coin_amount);
-        READWRITE(obj.name_amount);
+        READWRITE(obj.total_amount);
         READWRITE(obj.total_subsidy);
         READWRITE(prevout_spent);
         READWRITE(new_outputs);
@@ -84,19 +82,6 @@ struct DBVal {
         SER_READ(obj, obj.total_coinbase_amount = UintToArith256(coinbase));
     }
 };
-
-/** Variant of AddCoinValueToTotals that assumes no overflows happen.  */
-void AddCoinValueToTotals (const Coin& coin, const int sign,
-                           CAmount& totalCoins, CAmount& totalNames)
-{
-  std::optional<CAmount> coins(totalCoins);
-  std::optional<CAmount> names(totalNames);
-  kernel::AddCoinValueToTotals (coin, sign, coins, names);
-  assert (coins.has_value () && names.has_value ());
-  totalCoins = *coins;
-  totalNames = *names;
-}
-
 }; // namespace
 
 std::unique_ptr<CoinStatsIndex> g_coin_stats_index;
@@ -166,7 +151,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                 }
 
                 ++m_transaction_output_count;
-                AddCoinValueToTotals (coin, 1, m_coin_amount, m_name_amount);
+                m_total_amount += coin.out.nValue;
                 m_bogo_size += GetBogoSize(coin.out.scriptPubKey);
             }
 
@@ -183,7 +168,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                     m_total_prevout_spent_amount += coin.out.nValue;
 
                     --m_transaction_output_count;
-                    AddCoinValueToTotals (coin, -1, m_coin_amount, m_name_amount);
+                    m_total_amount -= coin.out.nValue;
                     m_bogo_size -= GetBogoSize(coin.out.scriptPubKey);
                 }
             }
@@ -206,8 +191,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
     value.first = block.hash;
     value.second.transaction_output_count = m_transaction_output_count;
     value.second.bogo_size = m_bogo_size;
-    value.second.coin_amount = m_coin_amount;
-    value.second.name_amount = m_name_amount;
+    value.second.total_amount = m_total_amount;
     value.second.total_subsidy = m_total_subsidy;
     value.second.total_prevout_spent_amount = m_total_prevout_spent_amount;
     value.second.total_new_outputs_ex_coinbase_amount = m_total_new_outputs_ex_coinbase_amount;
@@ -262,8 +246,7 @@ std::optional<CCoinsStats> CoinStatsIndex::LookUpStats(const CBlockIndex& block_
     stats.hashSerialized = entry.muhash;
     stats.nTransactionOutputs = entry.transaction_output_count;
     stats.nBogoSize = entry.bogo_size;
-    stats.nCoinAmount = entry.coin_amount;
-    stats.nNameAmount = entry.name_amount;
+    stats.total_amount = entry.total_amount;
     stats.total_subsidy = entry.total_subsidy;
     stats.total_prevout_spent_amount = entry.total_prevout_spent_amount;
     stats.total_new_outputs_ex_coinbase_amount = entry.total_new_outputs_ex_coinbase_amount;
@@ -307,8 +290,7 @@ bool CoinStatsIndex::CustomInit(const std::optional<interfaces::BlockRef>& block
 
         m_transaction_output_count = entry.transaction_output_count;
         m_bogo_size = entry.bogo_size;
-        m_coin_amount = entry.coin_amount;
-        m_name_amount = entry.name_amount;
+        m_total_amount = entry.total_amount;
         m_total_subsidy = entry.total_subsidy;
         m_total_prevout_spent_amount = entry.total_prevout_spent_amount;
         m_total_new_outputs_ex_coinbase_amount = entry.total_new_outputs_ex_coinbase_amount;
@@ -405,8 +387,7 @@ bool CoinStatsIndex::RevertBlock(const interfaces::BlockInfo& block)
 
     // Apply the other values from the DB to the member variables
     m_transaction_output_count = read_out.second.transaction_output_count;
-    m_coin_amount = read_out.second.coin_amount;
-    m_name_amount = read_out.second.name_amount;
+    m_total_amount = read_out.second.total_amount;
     m_bogo_size = read_out.second.bogo_size;
     m_total_subsidy = read_out.second.total_subsidy;
     m_total_prevout_spent_amount = read_out.second.total_prevout_spent_amount;

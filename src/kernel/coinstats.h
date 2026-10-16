@@ -37,9 +37,8 @@ struct CCoinsStats {
     uint64_t nBogoSize{0};
     uint256 hashSerialized{};
     uint64_t nDiskSize{0};
-    // The total amounts, or nullopt if an overflow occurred calculating them
-    std::optional<CAmount> nCoinAmount{0};
-    std::optional<CAmount> nNameAmount{0};
+    //! The total amount, or nullopt if an overflow occurred calculating it
+    std::optional<CAmount> total_amount{0};
 
     //! The number of coins contained.
     uint64_t coins_count{0};
@@ -77,14 +76,6 @@ uint64_t GetBogoSize(const CScript& script_pub_key);
 
 void ApplyCoinHash(MuHash3072& muhash, const COutPoint& outpoint, const Coin& coin);
 void RemoveCoinHash(MuHash3072& muhash, const COutPoint& outpoint, const Coin& coin);
-
-/** Applies the value of the given coin to either the name or the
- *  currency total.  The sign can be used to apply them negative
- *  in case of undos.  The totals check for overflow and return a missing
- *  value in that case.  */
-void AddCoinValueToTotals (const Coin& coin, int sign,
-                           std::optional<CAmount>& totalCoins,
-                           std::optional<CAmount>& totalNames);
 
 std::optional<CCoinsStats> ComputeUTXOStats(CoinStatsHashType hash_type, const CCoinsViewDB& view, node::BlockManager& blockman, const std::function<void()>& interruption_point = {});
 } // namespace kernel

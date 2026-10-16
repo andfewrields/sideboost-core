@@ -169,9 +169,7 @@ static void PreventOutdatedOptions(const UniValue& options)
     }
 }
 
-UniValue SendMoney(CWallet& wallet, const CCoinControl &coin_control,
-                   const CTxIn* withInput,
-                   std::vector<CRecipient> &recipients, std::optional<std::string> comment, std::optional<std::string> comment_to, bool verbose)
+UniValue SendMoney(CWallet& wallet, const CCoinControl &coin_control, std::vector<CRecipient> &recipients, std::optional<std::string> comment, std::optional<std::string> comment_to, bool verbose)
 {
     EnsureWalletIsUnlocked(wallet);
 
@@ -189,7 +187,7 @@ UniValue SendMoney(CWallet& wallet, const CCoinControl &coin_control,
     std::shuffle(recipients.begin(), recipients.end(), FastRandomContext());
 
     // Send
-    auto res = CreateTransaction(wallet, recipients, withInput, /*change_pos=*/std::nullopt, coin_control, true);
+    auto res = CreateTransaction(wallet, recipients, /*change_pos=*/std::nullopt, coin_control, true);
     if (!res) {
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, util::ErrorString(res).original);
     }
@@ -218,7 +216,7 @@ UniValue SendMoney(CWallet& wallet, const CCoinControl &coin_control,
  *                                      verify only that fee_rate is greater than 0
  * @throws a JSONRPCError if conf_target, estimate_mode, or fee_rate contain invalid values or are in conflict
  */
-void SetFeeEstimateMode(const CWallet& wallet, CCoinControl& cc, const UniValue& conf_target, const UniValue& estimate_mode, const UniValue& fee_rate, bool override_min_fee)
+static void SetFeeEstimateMode(const CWallet& wallet, CCoinControl& cc, const UniValue& conf_target, const UniValue& estimate_mode, const UniValue& fee_rate, bool override_min_fee)
 {
     if (!fee_rate.isNull()) {
         if (!conf_target.isNull()) {
@@ -336,7 +334,7 @@ RPCMethod sendtoaddress()
     std::vector<CRecipient> recipients{CreateRecipients(ParseOutputs(address_amounts), sffo_set)};
     const bool verbose{request.params[10].isNull() ? false : request.params[10].get_bool()};
 
-    return SendMoney(*pwallet, coin_control, nullptr, recipients, comment, comment_to, verbose);
+    return SendMoney(*pwallet, coin_control, recipients, comment, comment_to, verbose);
 },
     };
 }
@@ -432,7 +430,7 @@ RPCMethod sendmany()
     );
     const bool verbose{request.params[9].isNull() ? false : request.params[9].get_bool()};
 
-    return SendMoney(*pwallet, coin_control, nullptr, recipients, comment, /*comment_to=*/std::nullopt, verbose);
+    return SendMoney(*pwallet, coin_control, recipients, comment, /*comment_to=*/std::nullopt, verbose);
 },
     };
 }
@@ -815,25 +813,16 @@ RPCMethod fundrawtransaction()
     }
     UniValue options = request.params[1];
     std::vector<std::pair<CTxDestination, CAmount>> destinations;
-    std::vector<CScript> namePrefix;
     for (const auto& tx_out : tx.vout) {
-        CNameScript nameOp(tx_out.scriptPubKey);
-        CScript baseAddr = nameOp.getAddress();
-
         CTxDestination dest;
-        ExtractDestination(baseAddr, dest);
+        ExtractDestination(tx_out.scriptPubKey, dest);
         destinations.emplace_back(dest, tx_out.nValue);
-        namePrefix.push_back(nameOp.GetPrefix ());
     }
     std::vector<std::string> dummy(destinations.size(), "dummy");
     std::vector<CRecipient> recipients = CreateRecipients(
             destinations,
             InterpretSubtractFeeFromOutputInstructions(options["subtractFeeFromOutputs"], dummy)
     );
-    assert(namePrefix.size() == recipients.size());
-    for (unsigned i = 0; i < recipients.size(); ++i) {
-        recipients[i].nameScript = namePrefix[i];
-    }
     CCoinControl coin_control;
     // Automatically select (additional) coins. Can be overridden by options.add_inputs.
     coin_control.m_allow_other_inputs = true;

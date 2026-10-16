@@ -290,7 +290,6 @@ public:
     // FIXME: Upstream Bitcoin has default version set to 2 already.  Do this
     // once we forked to make the tx version irrelevant for Namecoin.
     static constexpr int32_t CURRENT_VERSION{1};
-    static constexpr int32_t NAMECOIN_VERSION{0x7100};
 
     // The local variables are made const to prevent unintended modification
     // without updating the cached hash value. However, CTransaction is not
@@ -338,7 +337,7 @@ public:
     const Wtxid& GetWitnessHash() const LIFETIMEBOUND { return m_witness_hash; };
 
     // Return sum of txouts.
-    CAmount GetValueOut(bool fExclueNames = false) const;
+    CAmount GetValueOut() const;
 
     /**
      * Calculate the total transaction size in bytes, including witness data.
@@ -350,11 +349,6 @@ public:
     bool IsCoinBase() const
     {
         return (vin.size() == 1 && vin[0].prevout.IsNull());
-    }
-
-    bool IsNamecoin() const
-    {
-        return version == NAMECOIN_VERSION;
     }
 
     bool Equals(const CTransaction& other, const EqualsOptions opts = {}) const
@@ -420,11 +414,6 @@ struct CMutableTransaction
         }
         return false;
     }
-
-    /**
-     * Turn this into a Namecoin version transaction if it is not yet one.
-     */
-    void SetNamecoin();
 };
 
 typedef std::shared_ptr<const CTransaction> CTransactionRef;

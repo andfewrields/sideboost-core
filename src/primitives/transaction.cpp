@@ -9,7 +9,6 @@
 #include <crypto/hex_base.h>
 #include <hash.h>
 #include <primitives/transaction_identifier.h>
-#include <script/names.h>
 #include <script/script.h>
 #include <serialize.h>
 #include <tinyformat.h>
@@ -79,11 +78,6 @@ bool CTransaction::ComputeHasWitness() const
     });
 }
 
-void CMutableTransaction::SetNamecoin()
-{
-    version = CTransaction::NAMECOIN_VERSION;
-}
-
 Txid CTransaction::ComputeHash() const
 {
     return Txid::FromUint256((HashWriter{} << TX_NO_WITNESS(*this)).GetHash());
@@ -101,14 +95,13 @@ Wtxid CTransaction::ComputeWitnessHash() const
 CTransaction::CTransaction(const CMutableTransaction& tx) : vin(tx.vin), vout(tx.vout), version{tx.version}, nLockTime{tx.nLockTime}, m_has_witness{ComputeHasWitness()}, hash{ComputeHash()}, m_witness_hash{ComputeWitnessHash()} {}
 CTransaction::CTransaction(CMutableTransaction&& tx) : vin(std::move(tx.vin)), vout(std::move(tx.vout)), version{tx.version}, nLockTime{tx.nLockTime}, m_has_witness{ComputeHasWitness()}, hash{ComputeHash()}, m_witness_hash{ComputeWitnessHash()} {}
 
-CAmount CTransaction::GetValueOut(bool fExcludeNames) const
+CAmount CTransaction::GetValueOut() const
 {
     CAmount nValueOut = 0;
     for (const auto& tx_out : vout) {
         if (!MoneyRange(tx_out.nValue) || !MoneyRange(nValueOut + tx_out.nValue))
             throw std::runtime_error(std::string(__func__) + ": value out of range");
-        if (!fExcludeNames || !CNameScript::isNameScript(tx_out.scriptPubKey))
-            nValueOut += tx_out.nValue;
+        nValueOut += tx_out.nValue;
     }
     assert(MoneyRange(nValueOut));
     return nValueOut;

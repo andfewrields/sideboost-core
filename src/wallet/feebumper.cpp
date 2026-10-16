@@ -7,7 +7,6 @@
 #include <coins.h>
 #include <common/system.h>
 #include <consensus/validation.h>
-#include <script/names.h>
 #include <interfaces/chain.h>
 #include <policy/policy.h>
 #include <util/moneystr.h>
@@ -260,13 +259,6 @@ Result CreateRateBumpTransaction(CWallet& wallet, const Txid& txid, const CCoinC
             new_coin_control.destChange = dest;
         } else {
             CRecipient recipient = {dest, output.nValue, false};
-            // Preserve name operation script prefix (e.g., name_new,
-            // name_firstupdate, name_update) so that the replacement
-            // transaction retains the Namecoin name operation.
-            const CNameScript nameOp(output.scriptPubKey);
-            if (nameOp.isNameOp()) {
-                recipient.nameScript = nameOp.GetPrefix();
-            }
             recipients.push_back(recipient);
         }
         new_outputs_value += output.nValue;
@@ -321,7 +313,7 @@ Result CreateRateBumpTransaction(CWallet& wallet, const Txid& txid, const CCoinC
     // We cannot source new unconfirmed inputs(bip125 rule 2)
     new_coin_control.m_min_depth = 1;
 
-    auto res = CreateTransaction(wallet, recipients, nullptr, /*change_pos=*/std::nullopt, new_coin_control, false);
+    auto res = CreateTransaction(wallet, recipients, /*change_pos=*/std::nullopt, new_coin_control, false);
     if (!res) {
         errors.emplace_back(Untranslated("Unable to create transaction.") + Untranslated(" ") + util::ErrorString(res));
         return Result::WALLET_ERROR;

@@ -140,8 +140,7 @@ BOOST_FIXTURE_TEST_CASE(index_unclean_shutdown, TestChain100Setup)
                 BOOST_CHECK(CheckBlock(block, state, params.GetConsensus()));
                 BOOST_CHECK(m_node.chainman->AcceptBlock(new_block, state, &new_block_index, true, nullptr, nullptr, true));
                 CCoinsViewCache view(&chainstate.CoinsTip());
-                std::set<valtype> expiredNames;
-                BOOST_CHECK(chainstate.ConnectBlock(block, state, new_block_index, view, expiredNames));
+                BOOST_CHECK(chainstate.ConnectBlock(block, state, new_block_index, view));
             }
             // Send block connected notification, then stop the index without
             // sending a chainstate flushed notification. Prior to #24138, this

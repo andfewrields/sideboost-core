@@ -11,7 +11,6 @@
 #include <index/base.h>
 #include <index/blockfilterindex.h>
 #include <index/coinstatsindex.h>
-#include <index/namehash.h>
 #include <index/txindex.h>
 #include <index/txospenderindex.h>
 #include <interfaces/chain.h>
@@ -402,9 +401,6 @@ static RPCMethod getindexinfo()
 
     if (g_txindex) {
         result.pushKVs(SummaryToJSON(g_txindex->GetSummary(), index_name));
-    }
-    if (g_name_hash_index) {
-        result.pushKVs(SummaryToJSON(g_name_hash_index->GetSummary(), index_name));
     }
 
     if (g_coin_stats_index) {

@@ -8,7 +8,6 @@
 #include <prevector.h>
 #include <pubkey.h>
 #include <script/interpreter.h>
-#include <script/names.h>
 #include <script/script.h>
 
 #include <cassert>
@@ -143,22 +142,18 @@ TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned c
 {
     vSolutionsRet.clear();
 
-    // If we have a name script, strip the prefix
-    const CNameScript nameOp(scriptPubKey);
-    const CScript& script = nameOp.getAddress();
-
     // Shortcut for pay-to-script-hash, which are more constrained than the other types:
     // it is always OP_HASH160 20 [20 byte hash] OP_EQUAL
-    if (script.IsPayToScriptHash(false))
+    if (scriptPubKey.IsPayToScriptHash())
     {
-        std::vector<unsigned char> hashBytes(script.begin()+2, script.begin()+22);
+        std::vector<unsigned char> hashBytes(scriptPubKey.begin()+2, scriptPubKey.begin()+22);
         vSolutionsRet.push_back(hashBytes);
         return TxoutType::SCRIPTHASH;
     }
 
     int witnessversion;
     std::vector<unsigned char> witnessprogram;
-    if (script.IsWitnessProgram(false, witnessversion, witnessprogram)) {
+    if (scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram)) {
         if (witnessversion == 0 && witnessprogram.size() == WITNESS_V0_KEYHASH_SIZE) {
             vSolutionsRet.push_back(std::move(witnessprogram));
             return TxoutType::WITNESS_V0_KEYHASH;
@@ -187,28 +182,24 @@ TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned c
     // So long as script passes the IsUnspendable() test and all but the first
     // byte passes the IsPushOnly() test we don't care what exactly is in the
     // script.
-    //
-    // Note that this intentionally uses scriptPubKey, and not script (which
-    // has a potential name prefix stripped).  At least for now, we exclude
-    // name operations from here.
     if (scriptPubKey.size() >= 1 && scriptPubKey[0] == OP_RETURN && scriptPubKey.IsPushOnly(scriptPubKey.begin()+1)) {
         return TxoutType::NULL_DATA;
     }
 
     std::vector<unsigned char> data;
-    if (MatchPayToPubkey(script, data)) {
+    if (MatchPayToPubkey(scriptPubKey, data)) {
         vSolutionsRet.push_back(std::move(data));
         return TxoutType::PUBKEY;
     }
 
-    if (MatchPayToPubkeyHash(script, data)) {
+    if (MatchPayToPubkeyHash(scriptPubKey, data)) {
         vSolutionsRet.push_back(std::move(data));
         return TxoutType::PUBKEYHASH;
     }
 
     int required;
     std::vector<std::vector<unsigned char>> keys;
-    if (MatchMultisig(script, required, keys)) {
+    if (MatchMultisig(scriptPubKey, required, keys)) {
         vSolutionsRet.push_back({static_cast<unsigned char>(required)}); // safe as required is in range 1..20
         vSolutionsRet.insert(vSolutionsRet.end(), keys.begin(), keys.end());
         vSolutionsRet.push_back({static_cast<unsigned char>(keys.size())}); // safe as size is in range 1..20

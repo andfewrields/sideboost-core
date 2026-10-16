@@ -28,7 +28,6 @@
 #include <kernel/types.h>
 #include <key.h>
 #include <key_io.h>
-#include <names/encoding.h>
 #include <node/types.h>
 #include <outputtype.h>
 #include <policy/feerate.h>
@@ -40,7 +39,6 @@
 #include <random.h>
 #include <script/descriptor.h>
 #include <script/interpreter.h>
-#include <script/names.h>
 #include <script/script.h>
 #include <script/sign.h>
 #include <script/signingprovider.h>
@@ -1265,9 +1263,8 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const SyncTxS
 
             // loop though all outputs
             for (const CTxOut& txout: tx.vout) {
-                const CScript script = CNameScript(txout.scriptPubKey).getAddress();
-                for (const auto& spk_man : GetScriptPubKeyMans(script)) {
-                    for (auto &dest : spk_man->MarkUnusedAddresses(script)) {
+                for (const auto& spk_man : GetScriptPubKeyMans(txout.scriptPubKey)) {
+                    for (auto &dest : spk_man->MarkUnusedAddresses(txout.scriptPubKey)) {
                         // If internal flag is not defined try to infer it from the ScriptPubKeyMan
                         if (!dest.internal.has_value()) {
                             dest.internal = IsInternalScriptPubKeyMan(spk_man);
@@ -1593,7 +1590,6 @@ void CWallet::blockConnected(const ChainstateRole& role, const interfaces::Block
         wallet_updated |= SyncTransaction(block.data->vtx[index], TxStateConfirmed{block.hash, block.height, static_cast<int>(index)});
         transactionRemovedFromMempool(block.data->vtx[index], MemPoolRemovalReason::BLOCK);
     }
-    EffectTransactionQueue();
 
     // Update on disk if this block resulted in us updating a tx, or periodically every 144 blocks (~1 day)
     if (wallet_updated || block.height % 144 == 0) {
@@ -1669,27 +1665,10 @@ CAmount CWallet::GetDebit(const CTxIn &txin) const
 {
     LOCK(cs_wallet);
     auto txo = GetTXO(txin.prevout);
-    if (txo && CNameScript::isNameScript(txo->GetTxOut().scriptPubKey))
-        return 0;
     if (txo) {
         return txo->GetTxOut().nValue;
     }
     return 0;
-}
-
-std::optional<CNameScript> CWallet::GetNameDebit(const CTxIn &txin) const
-{
-    LOCK(cs_wallet);
-    auto txo = GetTXO(txin.prevout);
-    if (!txo)
-        return {};
-
-    CNameScript op(txo->GetTxOut().scriptPubKey);
-
-    if (!op.isNameOp())
-        return {};
-
-    return {};
 }
 
 bool CWallet::IsMine(const CTxOut& txout) const
@@ -1704,10 +1683,9 @@ bool CWallet::IsMine(const CTxDestination& dest) const
     return IsMine(GetScriptForDestination(dest));
 }
 
-bool CWallet::IsMine(const CScript& fullScript) const
+bool CWallet::IsMine(const CScript& script) const
 {
     AssertLockHeld(cs_wallet);
-    const CScript script = CNameScript(fullScript).getAddress();
 
     // Search the cache so that IsMine is called only on the relevant SPKMs instead of on everything in m_spk_managers
     const auto& it = m_cached_spks.find(script);
@@ -1749,14 +1727,7 @@ bool CWallet::IsFromMe(const CTransaction& tx) const
 {
     LOCK(cs_wallet);
     for (const CTxIn& txin : tx.vin) {
-        const auto txo = GetTXO(txin.prevout);
-        /* We only want to class a transaction as "from me" if it spends
-           coins.  If it is only sending a name, this is an edge case e.g.
-           for atomic name transactions.  If we classed this as from me, then
-           it would break some other logic (e.g. fee calculation in the
-           gettransaction() RPC).  */
-        if (txo && !CNameScript(txo->GetTxOut().scriptPubKey).isNameOp())
-            return true;
+        if (GetTXO(txin.prevout)) return true;
     }
     return false;
 }
@@ -1769,18 +1740,6 @@ CAmount CWallet::GetDebit(const CTransaction& tx) const
         nDebit += GetDebit(txin);
         if (!MoneyRange(nDebit))
             throw std::runtime_error(std::string(__func__) + ": value out of range");
-    }
-    return nDebit;
-}
-
-std::optional<CNameScript> CWallet::GetNameDebit(const CTransaction& tx) const
-{
-    std::optional<CNameScript> nDebit;
-    for (const CTxIn& txin : tx.vin)
-    {
-        nDebit = GetNameDebit(txin);
-        if (nDebit)
-            break;
     }
     return nDebit;
 }
@@ -3417,73 +3376,6 @@ bool CWallet::BackupWallet(const std::string& strDest) const
     return GetDatabase().Backup(strDest);
 }
 
-bool CWallet::QueuedTransactionExists(const Txid& txid) const
-{
-    AssertLockHeld(cs_wallet);
-    return queuedTransactionMap.count(txid) > 0;
-}
-
-bool CWallet::WriteQueuedTransaction(const Txid &txid, const CMutableTransaction &tx)
-{
-    AssertLockHeld(cs_wallet);
-
-    const bool success = WalletBatch(GetDatabase()).WriteQueuedTransaction(txid, tx);
-    if(success)
-        queuedTransactionMap[txid] = tx;
-
-    return success;
-}
-
-bool CWallet::EraseQueuedTransaction(const Txid& txid)
-{
-    AssertLockHeld(cs_wallet);
-    const bool success = WalletBatch(GetDatabase()).EraseQueuedTransaction(txid);
-    if(success)
-        queuedTransactionMap.erase(txid);
-    return success;
-}
-
-bool CWallet::GetQueuedTransaction(const Txid &txid, CMutableTransaction *data) const
-{
-    AssertLockHeld(cs_wallet);
-    auto it = queuedTransactionMap.find(txid);
-    if (it == queuedTransactionMap.end())
-        return false;
-    if (data != nullptr)
-        (*data) = it->second;
-    return true;
-}
-
-void CWallet::EffectTransactionQueue()
-{
-    // This is called when we get a new block to deal with queued transactions.
-    if (chain().isInitialBlockDownload())
-        return;
-    // We only do this for fresh blocks. Otherwise, we might trigger way too early.
-    std::set<Txid> to_dequeue;
-    // Kludge; we can't remove items in a map while iterating over it.
-    AssertLockHeld(cs_wallet);
-    for (const auto& i : queuedTransactionMap)
-    // For each transaction in the queue...
-    {
-        const Txid& txid = i.first;
-        const CMutableTransaction& tx = i.second;
-
-        std::string unused_err_string;
-        if (chain().broadcastTransaction(MakeTransactionRef(tx), m_default_max_tx_fee, node::TxBroadcast::MEMPOOL_AND_BROADCAST_TO_ALL, unused_err_string))
-        // attempt to broadcast
-        {
-            to_dequeue.emplace(txid);
-            WalletLogPrintf("Broadcast queued transaction with txid %s, %s", txid.GetHex(), CTransaction(tx).ToString().c_str());
-            // No newline here, since tx's ToString contains one.
-        }
-        // If the transaction isn't yet valid, there's nothing to do.
-    }
-
-    for (const auto& i : to_dequeue)
-        queuedTransactionMap.erase(i);
-}
-
 int CWallet::GetTxDepthInMainChain(const CWalletTx& wtx) const
 {
     AssertLockHeld(cs_wallet);
@@ -3632,10 +3524,8 @@ std::unique_ptr<SigningProvider> CWallet::GetSolvingProvider(const CScript& scri
     return GetSolvingProvider(script, sigdata);
 }
 
-std::unique_ptr<SigningProvider> CWallet::GetSolvingProvider(const CScript& fullScript, SignatureData& sigdata) const
+std::unique_ptr<SigningProvider> CWallet::GetSolvingProvider(const CScript& script, SignatureData& sigdata) const
 {
-    const CScript script = CNameScript(fullScript).getAddress();
-
     // Search the cache for relevant SPKMs instead of iterating m_spk_managers
     const auto& it = m_cached_spks.find(script);
     if (it != m_cached_spks.end()) {

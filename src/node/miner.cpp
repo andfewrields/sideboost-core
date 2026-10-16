@@ -15,7 +15,6 @@
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
 #include <interfaces/types.h>
-#include <names/main.h>
 #include <node/blockstorage.h>
 #include <node/kernel_notifications.h>
 #include <node/mining_args.h>
@@ -277,85 +276,14 @@ bool BlockAssembler::TestChunkBlockLimits(int64_t chunk_weight, int64_t chunk_si
 
 // Perform transaction-level checks before adding to block:
 // - transaction finality (locktime)
-// - Namecoin maturity conditions
 bool BlockAssembler::TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>& txs) const
 {
     for (const auto tx : txs) {
-        if (!TxAllowedForNamecoin(tx.get().GetTx())) {
-            return false;
-        }
         if (!IsFinalTx(tx.get().GetTx(), nHeight, m_lock_time_cutoff)) {
             return false;
         }
     }
     return true;
-}
-
-bool
-BlockAssembler::TxAllowedForNamecoin (const CTransaction& tx) const
-{
-  if (!tx.IsNamecoin ())
-    return true;
-
-  bool nameOutFound = false;
-  CNameScript nameOpOut;
-  for (const auto& txOut : tx.vout)
-    {
-      const CNameScript op(txOut.scriptPubKey);
-      if (op.isNameOp ())
-        {
-          nameOutFound = true;
-          nameOpOut = op;
-          break;
-        }
-    }
-
-  if (nameOutFound && nameOpOut.getNameOp () == OP_NAME_FIRSTUPDATE)
-    {
-      bool nameNewFound = false;
-      const auto& coinsTip = m_chainstate.CoinsTip ();
-      for (const auto& txIn : tx.vin)
-        {
-          const auto coin = coinsTip.GetCoin (txIn.prevout);
-          if (!coin)
-            continue;
-
-          const CNameScript op(coin->out.scriptPubKey);
-          if (op.isNameOp () && op.getNameOp () == OP_NAME_NEW)
-            {
-              const int minHeight = coin->nHeight + MIN_FIRSTUPDATE_DEPTH;
-              if (minHeight > nHeight)
-                return false;
-              nameNewFound = true;
-            }
-        }
-
-      /* If the name_new is not only immature but actually unconfirmed, then
-         the GetCoin lookup above fails for it and we never reach the height
-         check.  In this case, nameNewFound is false and we should not yet
-         include the transaction in a mined block.  */
-      if (!nameNewFound)
-        return false;
-    }
-
-  return true;
-}
-
-bool
-BlockAssembler::DbLockLimitOk (const std::vector<CTxMemPoolEntryRef>& candidates) const
-{
-  std::vector<CTransactionRef> vtx;
-  for (const auto& tx : pblocktemplate->block.vtx)
-    {
-      /* Some parts of the logic here add a dummy coinbase to vtx
-         in the block template.  Ignore it here if so.  */
-      if (tx != nullptr)
-        vtx.push_back(tx);
-    }
-  for (const auto& it : candidates)
-    vtx.push_back(it.get().GetSharedTx());
-
-  return CheckDbLockLimit (vtx);
 }
 
 void BlockAssembler::AddToBlock(const CTxMemPoolEntry& entry)
@@ -407,7 +335,7 @@ void BlockAssembler::addChunks()
         }
 
         // Check to see if this chunk will fit.
-        if (!TestChunkBlockLimits(chunk_weight, chunk_sig_ops) || !TestChunkTransactions(selected_transactions) || !DbLockLimitOk(selected_transactions)) {
+        if (!TestChunkBlockLimits(chunk_weight, chunk_sig_ops) || !TestChunkTransactions(selected_transactions)) {
             // This chunk won't fit, so we skip it and will try the next best one.
             m_mempool->SkipBuilderChunk();
             ++nConsecutiveFailed;

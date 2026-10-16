@@ -414,36 +414,6 @@ BASE_SCRIPTS = [
     'auxpow_mining.py --segwit',
     'auxpow_invalidpow.py',
     'auxpow_zerohash.py',
-
-    # name tests
-    'name_allowexpired.py',
-    'name_ant_workflow.py',
-    'name_bumpfee.py',
-    'name_byhash.py',
-    # FIXME: Fix for descriptor wallets:
-    #'name_deterministic_salt.py',
-    'name_encodings.py',
-    'name_expiration.py',
-    'name_immature_inputs.py',
-    'name_ismine.py',
-    'name_list.py',
-    'name_listunspent.py',
-    'name_longsalt.py',
-    'name_multisig.py',
-    'name_multisig.py --bip16-active',
-    'name_multiupdate.py',
-    'name_novalue.py',
-    'name_pending.py',
-    'name_psbt.py',
-    'name_rawtx.py',
-    'name_registration.py',
-    'name_reorg.py',
-    'name_scanning.py',
-    'name_segwit.py',
-    'name_sendcoins.py',
-    'name_txnqueue.py',
-    'name_utxo.py',
-    'name_wallet.py',
 ]
 
 # Tests that are currently being skipped (e. g., because of BIP9).
@@ -456,7 +426,6 @@ SKIPPED = [
     'feature_pruning.py',
     'mempool_cluster.py',
     'mining_mainnet.py',
-    'name_deterministic_salt.py',
     'tool_bitcoin.py',
 ]
 
@@ -926,7 +895,7 @@ class TestResult():
 def check_script_prefixes():
     """Check that test scripts start with one of the allowed name prefixes."""
 
-    good_prefixes_re = re.compile("^(example|feature|interface|mempool|mining|p2p|rpc|wallet|tool|auxpow|name)_")
+    good_prefixes_re = re.compile("^(example|feature|interface|mempool|mining|p2p|rpc|wallet|tool|auxpow)_")
     bad_script_names = [script for script in ALL_SCRIPTS if good_prefixes_re.match(script) is None]
 
     if bad_script_names:
