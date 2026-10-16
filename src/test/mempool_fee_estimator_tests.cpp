@@ -28,17 +28,12 @@ static inline CTransactionRef MakeRandomTx()
     auto rng = FastRandomContext();
     auto tx = CMutableTransaction();
     tx.vin.resize(1);
-    tx.vout.resize(50);
+    tx.vout.resize(1);
     tx.vin[0].prevout.hash = Txid::FromUint256(rng.rand256());
     tx.vin[0].prevout.n = 0;
     tx.vin[0].scriptSig << OP_TRUE;
-    // Namecoin's BDB lock limit caps block templates at 4500 tx-IDs (~2250 txs).
-    // Use large transactions so that filling the mempool to the test's target
-    // fractions of block weight stays within that transaction-count limit.
-    for (auto& out : tx.vout) {
-        out.scriptPubKey = CScript() << OP_TRUE;
-        out.nValue = COIN;
-    }
+    tx.vout[0].scriptPubKey = CScript() << OP_TRUE;
+    tx.vout[0].nValue = COIN;
     return MakeTransactionRef(tx);
 }
 
