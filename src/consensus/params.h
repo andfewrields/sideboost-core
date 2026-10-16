@@ -165,6 +165,9 @@ struct Params {
     int nSubsidyHalvingInterval;
     /** Coinbase outputs can only be spent after this many new blocks.  */
     int nCoinbaseMaturity{COINBASE_MATURITY};
+    /** Block subsidy before any halving.  Zero on chains where all coins
+     *  enter through deposits.  */
+    CAmount nInitialSubsidy{50 * COIN};
     /** Consensus limits on block weight and sigops cost.  A chain may set
      *  these lower than the global MAX_BLOCK_WEIGHT / MAX_BLOCK_SIGOPS_COST
      *  (which remain the upper bounds used for buffers and DoS limits), but
