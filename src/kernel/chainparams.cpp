@@ -71,8 +71,9 @@ static CBlock CreateGenesisBlock(const CScript& genesisInputScript, const CScrip
 }
 
 /**
- * Build a SideBoost genesis block.  Its output is provably unspendable
- * (OP_RETURN).  Mined with a local script (tmp/mine-genesis.py, not committed)
+ * Build the SideBoost genesis block.  Its output is provably unspendable
+ * (OP_RETURN); SideBoost has no block subsidy, all coins enter through
+ * deposits.  Mined with a local script (tmp/mine-genesis.py, not committed)
  * that must mirror this function.
  */
 static CBlock CreateSideBoostGenesisBlock(const char* pszTimestamp, uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion)
@@ -127,11 +128,34 @@ void CChainParams::ApplyDeploymentOptions(const DeploymentOptions& opts)
 }
 
 /**
- * Consensus rules shared by all SideBoost networks: ~10 second blocks, and
- * the limits that scale with them.  See PLAN.md for the rationale.
+ * Consensus rules shared by all SideBoost networks.  Mainnet uses them as is;
+ * the test networks start from them and override only what testing needs, so
+ * that they exercise the same rules as mainnet.  See PLAN.md for the rationale.
  */
 static void SetSideBoostConsensus(Consensus::Params& consensus)
 {
+    consensus.signet_blocks = false;
+    consensus.signet_challenge.clear();
+    consensus.nSubsidyHalvingInterval = 210000;
+    consensus.nInitialSubsidy = 0;
+    /* 15x Bitcoin's 100 blocks: ~4.2 hours at 10 s, a quarter of
+       Bitcoin's ~16.7 hours.  */
+    consensus.nCoinbaseMaturity = 1'500;
+    /* 1/60 of Bitcoin's limits to match the 60x shorter block interval,
+       rounded to the nearest multiple of WITNESS_SCALE_FACTOR.  */
+    consensus.nMaxBlockWeight = 66'668;
+    consensus.nMaxBlockSigOpsCost = 1'332;
+    /* All buried deployments active from the start.  BIP34/65/66/CSV
+       start at height 1 since the genesis block cannot satisfy them.  */
+    consensus.BIP16Height = 0;
+    consensus.BIP34Height = 1;
+    consensus.BIP34Hash = uint256{};
+    consensus.BIP65Height = 1;
+    consensus.BIP66Height = 1;
+    consensus.CSVHeight = 1;
+    consensus.SegwitHeight = 0;
+    consensus.MinBIP9WarningHeight = 0;
+    consensus.powLimit = uint256{"000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
     consensus.nPowTargetSpacing = 10;
     consensus.nPowTargetTimespan = 500 * consensus.nPowTargetSpacing; // 500 blocks, ~83 minutes
     /* Asymmetric retarget cap: difficulty rises at most 2x per window
@@ -142,65 +166,51 @@ static void SetSideBoostConsensus(Consensus::Params& consensus)
     /* Shorter than a retarget window, so future-dated timestamps cannot
        materially stretch a window's apparent duration.  */
     consensus.nMaxFutureBlockTime = 5 * 60;
-    /* 1/60 of Bitcoin's limits to match the 60x shorter block interval,
-       rounded to the nearest multiple of WITNESS_SCALE_FACTOR.  */
-    consensus.nMaxBlockWeight = 66'668;
-    consensus.nMaxBlockSigOpsCost = 1'332;
-    /* 15x Bitcoin's 100 blocks: ~4.2 hours at 10 s, a quarter of
-       Bitcoin's ~16.7 hours.  */
-    consensus.nCoinbaseMaturity = 1'500;
+    consensus.fPowAllowMinDifficultyBlocks = false;
+    consensus.nMinDifficultySince = 0;
+    consensus.enforce_BIP94 = false;
+    consensus.fPowNoRetargeting = false;
+    consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
+    consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+    consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+    consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay
+    consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].threshold = 1815; // 90%
+    consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].period = 2016;
+
+    // Deployment of Taproot (BIPs 340-342)
+    consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+    consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+    consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+    consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay
+    consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].threshold = 1815; // 90%
+    consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].period = 2016;
+
+    consensus.nMinimumChainWork = uint256{};
+    consensus.defaultAssumeValid = uint256{};
+
+    consensus.nAuxpowChainId = 0x5342; // "SB"
+    consensus.nAuxpowStartHeight = 0;
+    consensus.fStrictChainId = true;
+    consensus.nLegacyBlocksBefore = 0;
+
+    /* Name rules are kept unchanged for now (to be removed later).  */
+    consensus.rules.reset(new Consensus::MainNetConsensus());
 }
 
 /**
  * SideBoost main network.
+ *
+ * SideBoost is a BIP300 sidechain of ECX, merge-mined via AuxPoW: no block
+ * subsidy (all coins enter through deposits), ~10 second blocks and a
+ * proportionally smaller block size.  Parameters are otherwise kept as
+ * neutral as possible.  See PLAN.md for the rationale.
  */
 class CMainParams : public CChainParams {
 public:
     CMainParams(const MainNetOptions& opts) {
         m_chain_type = ChainType::MAIN;
         SetSideBoostConsensus(consensus);
-        consensus.signet_blocks = false;
-        consensus.signet_challenge.clear();
-        consensus.nSubsidyHalvingInterval = 210000;
-        /* New chain: all buried deployments active from the start.
-           BIP34/65/66/CSV start at height 1 since the genesis block cannot
-           satisfy them.  */
-        consensus.BIP16Height = 0;
-        consensus.BIP34Height = 1;
-        consensus.BIP34Hash = uint256{};
-        consensus.BIP65Height = 1;
-        consensus.BIP66Height = 1;
-        consensus.CSVHeight = 1;
-        consensus.SegwitHeight = 0;
-        consensus.MinBIP9WarningHeight = 0;
-        consensus.powLimit = uint256{"000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
-        consensus.fPowAllowMinDifficultyBlocks = false;
-        consensus.enforce_BIP94 = false;
-        consensus.fPowNoRetargeting = false;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].threshold = 1815; // 90%
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].period = 2016;
-
-        // Deployment of Taproot (BIPs 340-342)
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay
-
         ApplyDeploymentOptions(opts.dep_opts);
-
-        consensus.nMinimumChainWork = uint256{};
-        consensus.defaultAssumeValid = uint256{};
-
-        consensus.nAuxpowChainId = 0x5342; // "SB"
-        consensus.nAuxpowStartHeight = 0;
-        consensus.fStrictChainId = true;
-        consensus.nLegacyBlocksBefore = 0;
-
-        consensus.rules.reset(new Consensus::MainNetConsensus());
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -244,7 +254,8 @@ public:
             .dTxRate  = 0,
         };
 
-        // Copied from Testnet4.  TODO: regenerate with headerssync-params.py for this chain.
+        // Copied from Testnet4.  TODO: regenerate with headerssync-params.py
+        // adapted to 10 second blocks.
         m_headers_sync_params = HeadersSyncParams{
             .commitment_period = 616,
             .redownload_buffer_size = 16199, // 16199/616 = ~26.3 commitments
@@ -260,57 +271,16 @@ public:
 };
 
 /**
- * Testnet (v3): public test network which is reset from time to time.
+ * SideBoost testnet: public test network.
+ *
+ * Same rules as mainnet (no subsidy, 10 s blocks); only its identity differs.
  */
 class CTestNetParams : public CChainParams {
 public:
     CTestNetParams(const TestNetOptions& opts) {
         m_chain_type = ChainType::TESTNET;
         SetSideBoostConsensus(consensus);
-        consensus.signet_blocks = false;
-        consensus.signet_challenge.clear();
-        consensus.nSubsidyHalvingInterval = 210000;
-        /* New chain: all buried deployments active from the start.
-           BIP34/65/66/CSV start at height 1 since the genesis block cannot
-           satisfy them.  */
-        consensus.BIP16Height = 0;
-        consensus.BIP34Height = 1;
-        consensus.BIP34Hash = uint256{};
-        consensus.BIP65Height = 1;
-        consensus.BIP66Height = 1;
-        consensus.CSVHeight = 1;
-        consensus.SegwitHeight = 0;
-        consensus.MinBIP9WarningHeight = 0;
-        consensus.powLimit = uint256{"000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
-        consensus.fPowAllowMinDifficultyBlocks = true;
-        consensus.nMinDifficultySince = 1394838000; // 15 Mar 2014
-        consensus.fPowNoRetargeting = false;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].threshold = 1512; // 75%
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].period = 2016;
-
-        // Deployment of Taproot (BIPs 340-342)
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].threshold = 1512; // 75%
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].period = 2016;
-
         ApplyDeploymentOptions(opts.dep_opts);
-
-        consensus.nMinimumChainWork = uint256{};
-        consensus.defaultAssumeValid = uint256{};
-
-        consensus.nAuxpowChainId = 0x5342; // "SB"
-        consensus.nAuxpowStartHeight = 0;
-        consensus.fStrictChainId = true;
-        consensus.nLegacyBlocksBefore = 0;
-
-        consensus.rules.reset(new Consensus::TestNetConsensus());
 
         pchMessageStart[0] = 0xfc;
         pchMessageStart[1] = 0xc1;
@@ -349,7 +319,7 @@ public:
             .dTxRate  = 0,
         };
 
-        // Copied from Testnet4.  TODO: regenerate with headerssync-params.py for this chain.
+        // Same as mainnet.  TODO: regenerate for 10 second blocks.
         m_headers_sync_params = HeadersSyncParams{
             .commitment_period = 616,
             .redownload_buffer_size = 16199, // 16199/616 = ~26.3 commitments
@@ -365,58 +335,16 @@ public:
 };
 
 /**
- * Testnet (v4): public test network which is reset from time to time.
+ * SideBoost testnet4: second public test network.
+ *
+ * Same rules as mainnet (no subsidy, 10 s blocks); only its identity differs.
  */
 class CTestNet4Params : public CChainParams {
 public:
     CTestNet4Params(const TestNetOptions& opts) {
         m_chain_type = ChainType::TESTNET4;
         SetSideBoostConsensus(consensus);
-        consensus.signet_blocks = false;
-        consensus.signet_challenge.clear();
-        consensus.nSubsidyHalvingInterval = 210000;
-        /* New chain: all buried deployments active from the start.
-           BIP34/65/66/CSV start at height 1 since the genesis block cannot
-           satisfy them.  */
-        consensus.BIP16Height = 0;
-        consensus.BIP34Height = 1;
-        consensus.BIP34Hash = uint256{};
-        consensus.BIP65Height = 1;
-        consensus.BIP66Height = 1;
-        consensus.CSVHeight = 1;
-        consensus.SegwitHeight = 0;
-        consensus.MinBIP9WarningHeight = 0;
-        consensus.powLimit = uint256{"000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
-        consensus.fPowAllowMinDifficultyBlocks = true;
-        consensus.enforce_BIP94 = true;
-        consensus.fPowNoRetargeting = false;
-
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].threshold = 1512; // 75%
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].period = 2016;
-
-        // Deployment of Taproot (BIPs 340-342)
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].threshold = 1512; // 75%
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].period = 2016;
-
         ApplyDeploymentOptions(opts.dep_opts);
-
-        consensus.nMinimumChainWork = uint256{};
-        consensus.defaultAssumeValid = uint256{};
-
-        consensus.nAuxpowChainId = 0x5342; // "SB"
-        consensus.nAuxpowStartHeight = 0;
-        consensus.fStrictChainId = true;
-        consensus.nLegacyBlocksBefore = 0;
-
-        consensus.rules.reset(new Consensus::TestNetConsensus());
 
         pchMessageStart[0] = 0xfd;
         pchMessageStart[1] = 0xc2;
@@ -455,11 +383,13 @@ public:
             .dTxRate  = 0,
         };
 
-        // Generated by headerssync-params.py on 2026-09-08.
+        // Same as mainnet.  TODO: regenerate for 10 second blocks.
         m_headers_sync_params = HeadersSyncParams{
             .commitment_period = 616,
             .redownload_buffer_size = 16199, // 16199/616 = ~26.3 commitments
         };
+
+        assert(mapHistoricBugs.empty());
     }
 
     int DefaultCheckNameDB () const override
@@ -487,8 +417,6 @@ public:
             //vSeeds.emplace_back("seed.signet.bitcoin.sprovoost.nl.");
             //vSeeds.emplace_back("seed.signet.achownodes.xyz."); // Ava Chow, only supports x1, x5, x9, x49, x809, x849, xd, x400, x404, x408, x448, xc08, xc48, x40c
 
-            consensus.nMinimumChainWork = uint256{};
-            consensus.defaultAssumeValid = uint256{};
             m_assumed_blockchain_size = 1;
             m_assumed_chain_state_size = 1;
             chainTxData = ChainTxData{
@@ -498,8 +426,6 @@ public:
             };
         } else {
             bin = *options.challenge;
-            consensus.nMinimumChainWork = uint256{};
-            consensus.defaultAssumeValid = uint256{};
             m_assumed_blockchain_size = 0;
             m_assumed_chain_state_size = 0;
             chainTxData = ChainTxData{
@@ -515,46 +441,12 @@ public:
         }
 
         m_chain_type = ChainType::SIGNET;
+        /* Same rules as mainnet (no subsidy, 10 s blocks); blocks are
+           additionally signed by the challenge (BIP325).  */
         SetSideBoostConsensus(consensus);
         consensus.signet_blocks = true;
         consensus.signet_challenge.assign(bin.begin(), bin.end());
-        consensus.nSubsidyHalvingInterval = 210000;
-        /* New chain: all buried deployments active from the start.  */
-        consensus.BIP16Height = 0;
-        consensus.BIP34Height = 1;
-        consensus.BIP34Hash = uint256{};
-        consensus.BIP65Height = 1;
-        consensus.BIP66Height = 1;
-        consensus.CSVHeight = 1;
-        consensus.SegwitHeight = 0;
-        consensus.fPowAllowMinDifficultyBlocks = false;
-        consensus.enforce_BIP94 = false;
-        consensus.fPowNoRetargeting = false;
-        consensus.MinBIP9WarningHeight = 0;
-        consensus.powLimit = uint256{"000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].threshold = 1815; // 90%
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].period = 2016;
-
-        // Activation of Taproot (BIPs 340-342)
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].threshold = 1815; // 90%
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].period = 2016;
-
         ApplyDeploymentOptions(options.dep_opts);
-
-        consensus.nAuxpowChainId = 0x5342; // "SB"
-        consensus.nAuxpowStartHeight = 0;
-        consensus.fStrictChainId = true;
-        consensus.nLegacyBlocksBefore = 0;
-
-        consensus.rules.reset(new Consensus::TestNetConsensus());
 
         // message start is defined as the first 4 bytes of the sha256d of the block script
         HashWriter h{};
@@ -583,7 +475,7 @@ public:
         fDefaultConsistencyChecks = false;
         m_is_mockable_chain = false;
 
-        // Copied from Testnet4.  TODO: regenerate with headerssync-params.py for this chain.
+        // Same as mainnet.  TODO: regenerate for 10 second blocks.
         m_headers_sync_params = HeadersSyncParams{
             .commitment_period = 616,
             .redownload_buffer_size = 16199, // 16199/616 = ~26.3 commitments
@@ -606,56 +498,42 @@ public:
     explicit CRegTestParams(const RegTestOptions& opts)
     {
         m_chain_type = ChainType::REGTEST;
+        /* Same rules as mainnet (block size, 10 s spacing, timestamps, ...),
+           except for what testing needs, overridden below.  */
         SetSideBoostConsensus(consensus);
-        /* Testing: Bitcoin's 100-block maturity, as the test frameworks
-           expect.  */
-        consensus.nCoinbaseMaturity = COINBASE_MATURITY;
-        consensus.signet_blocks = false;
-        consensus.signet_challenge.clear();
+
+        /* Testing: mining pays coins (the only way to fund test wallets until
+           deposits exist), with fast halvings and Bitcoin's 100-block
+           maturity, as the test frameworks expect.  */
+        consensus.nInitialSubsidy = 50 * COIN;
         consensus.nSubsidyHalvingInterval = 150;
-        consensus.BIP16Height = 0;
-        consensus.BIP34Height = 1; // Always active unless overridden
-        consensus.BIP65Height = 1;  // Always active unless overridden
-        consensus.BIP66Height = 1;  // Always active unless overridden
-        consensus.CSVHeight = 1;    // Always active unless overridden
-        consensus.SegwitHeight = 0; // Always active unless overridden
-        consensus.MinBIP9WarningHeight = 0;
+        consensus.nCoinbaseMaturity = COINBASE_MATURITY;
+
+        /* Testing: blocks are found instantly and difficulty never changes.  */
         consensus.powLimit = uint256{"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
         consensus.fPowAllowMinDifficultyBlocks = true;
-        consensus.nMinDifficultySince = 0;
-        consensus.enforce_BIP94 = opts.enforce_bip94;
         consensus.fPowNoRetargeting = true;
+        consensus.enforce_BIP94 = opts.enforce_bip94;
 
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
+        /* Testing: short versionbits periods, so deployments can be
+           exercised in a few hundred blocks.  */
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].threshold = 108; // 75%
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].period = 144; // Faster than normal for regtest (144 instead of 2016)
-        
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].threshold = 108; // 75%
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].period = 144;
 
-        consensus.nMinimumChainWork = uint256{};
-        consensus.defaultAssumeValid = uint256{};
-
-        consensus.nAuxpowStartHeight = 0;
+        /* Testing: the identity below (genesis, chain ID, magic, address
+           prefixes) stays Namecoin's, since the test frameworks hard-code it.
+           Only the default ports differ, to avoid clashing with an ECX (or
+           Bitcoin) regtest node on the same machine.  */
         consensus.nAuxpowChainId = 0x0001;
-        consensus.fStrictChainId = true;
-        consensus.nLegacyBlocksBefore = 0;
-
         consensus.rules.reset(new Consensus::RegTestConsensus());
 
         pchMessageStart[0] = 0xfa;
         pchMessageStart[1] = 0xbf;
         pchMessageStart[2] = 0xb5;
         pchMessageStart[3] = 0xda;
-        /* Not Bitcoin's 18444, to avoid clashing with an ECX (or Bitcoin)
-           regtest node on the same machine.  */
         nDefaultPort = 18454;
         nPruneAfterHeight = opts.fastprune ? 100 : 1000;
         m_assumed_blockchain_size = 0;
