@@ -204,9 +204,6 @@ class SignRawTransactionWithWalletTest(BitcoinTestFramework):
         ctx = tx_from_hex(tx)
         ctx.wit.vtxinwit.append(CTxInWitness())
         ctx.wit.vtxinwit[0].scriptWitness.stack = [CScript([OP_TRUE]), script]
-        # Namecoin uses version 1 as default (for non-name transactions),
-        # but CSV only works with version >= 2.
-        ctx.version = 2
         tx = ctx.serialize_with_witness().hex()
 
         # Sign and send the transaction

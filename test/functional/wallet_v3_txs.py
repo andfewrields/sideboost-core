@@ -108,8 +108,7 @@ class WalletV3Test(BitcoinTestFramework):
         self.run_test_with_swapped_versions(self.tx_spends_unconfirmed_tx_with_wrong_version)
         self.run_test_with_swapped_versions(self.va_tx_spends_confirmed_vb_tx)
         self.run_test_with_swapped_versions(self.spend_inputs_with_different_versions)
-        # Namecoin still uses v1 by default, and this breaks the test.
-        #self.spend_inputs_with_different_versions_default_version()
+        self.spend_inputs_with_different_versions_default_version()
         self.v3_utxos_appear_in_listunspent()
         self.truc_tx_with_conflicting_sibling()
         self.truc_tx_with_conflicting_sibling_change()
@@ -300,7 +299,7 @@ class WalletV3Test(BitcoinTestFramework):
         self.log.info("Test a v3 conflict being removed")
         # send a v2 output to alice and confirm it
         txid = self.charlie.sendall([self.alice.getnewaddress()])["txid"]
-        assert_equal(self.charlie.gettransaction(txid, verbose=True)["decoded"]["version"], 1)
+        assert_equal(self.charlie.gettransaction(txid, verbose=True)["decoded"]["version"], 2)
         self.generate(self.nodes[0], 1)
         # create a v3 tx to alice and bob
         outputs = {self.alice.getnewaddress() : 2.0, self.bob.getnewaddress() : 2.0}
@@ -334,7 +333,7 @@ class WalletV3Test(BitcoinTestFramework):
         self.log.info("Test that we remove v3 txs from mempool_conflicts correctly")
         # send a v2 output to alice and confirm it
         txid = self.charlie.sendall([self.alice.getnewaddress()])["txid"]
-        assert_equal(self.charlie.gettransaction(txid, verbose=True)["decoded"]["version"], 1)
+        assert_equal(self.charlie.gettransaction(txid, verbose=True)["decoded"]["version"], 2)
         self.generate(self.nodes[0], 1)
         # create a v3 tx to alice and bob
         outputs = {self.alice.getnewaddress() : 2.0, self.bob.getnewaddress() : 2.0}

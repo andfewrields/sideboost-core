@@ -121,10 +121,10 @@ class CreateTxWalletTest(BitcoinTestFramework):
         wallet_tx_data = wallet_rpc.gettransaction(tx_data["txid"])
         tx_current_version = tx_from_hex(wallet_tx_data["hex"])
 
-        # While v3 transactions are standard, the CURRENT_VERSION is 1.
+        # While version=3 transactions are standard, the CURRENT_VERSION is 2.
         # This test can be removed if CURRENT_VERSION is changed, and replaced with tests that the
         # wallet handles TRUC rules properly.
-        assert_equal(tx_current_version.version, 1)
+        assert_equal(tx_current_version.version, 2)
         wallet_v3.unloadwallet()
 
 

@@ -287,9 +287,7 @@ class CTransaction
 {
 public:
     // Default transaction version.
-    // FIXME: Upstream Bitcoin has default version set to 2 already.  Do this
-    // once we forked to make the tx version irrelevant for Namecoin.
-    static constexpr int32_t CURRENT_VERSION{1};
+    static constexpr uint32_t CURRENT_VERSION{2};
 
     // The local variables are made const to prevent unintended modification
     // without updating the cached hash value. However, CTransaction is not
