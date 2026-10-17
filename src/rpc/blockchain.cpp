@@ -1188,6 +1188,7 @@ static RPCMethod gettxoutsetinfo()
                             {RPCResult::Type::STR_AMOUNT, "prevout_spent", "Total amount of all prevouts spent in this block"},
                             {RPCResult::Type::STR_AMOUNT, "coinbase", "Coinbase subsidy amount of this block"},
                             {RPCResult::Type::STR_AMOUNT, "new_outputs_ex_coinbase", "Total amount of new outputs created by this block"},
+                            {RPCResult::Type::STR_AMOUNT, "deposits", "Total amount of deposits from the parent chain credited by this block"},
                             {RPCResult::Type::STR_AMOUNT, "unspendable", "Total amount of unspendable outputs created in this block"},
                             {RPCResult::Type::OBJ, "unspendables", "Detailed view of the unspendable categories",
                             {
@@ -1303,6 +1304,7 @@ static RPCMethod gettxoutsetinfo()
             block_info.pushKV("prevout_spent", ValueFromAmount(prevout_amount));
             block_info.pushKV("coinbase", ValueFromAmount(coinbase_amount));
             block_info.pushKV("new_outputs_ex_coinbase", ValueFromAmount(outputs_amount));
+            block_info.pushKV("deposits", ValueFromAmount(static_cast<CAmount>((stats.total_deposit_amount - prev_stats.total_deposit_amount).GetLow64())));
             block_info.pushKV("unspendable", ValueFromAmount(block_total_unspendable_amount - prev_block_total_unspendable_amount));
 
             UniValue unspendables(UniValue::VOBJ);
@@ -2243,7 +2245,8 @@ static RPCMethod getblockstats()
             }
         }
 
-        if (tx->IsCoinBase()) {
+        // Neither spends anything (a deposit's undo data is the deposit state)
+        if (tx->IsCoinBase() || tx->IsDeposit()) {
             continue;
         }
 

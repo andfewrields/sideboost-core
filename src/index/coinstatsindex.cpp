@@ -12,6 +12,7 @@
 #include <consensus/amount.h>
 #include <crypto/muhash.h>
 #include <dbwrapper.h>
+#include <drivechain/deposit.h>
 #include <index/base.h>
 #include <index/db_key.h>
 #include <interfaces/chain.h>
@@ -52,6 +53,7 @@ struct DBVal {
     arith_uint256 total_prevout_spent_amount{0};
     arith_uint256 total_new_outputs_ex_coinbase_amount{0};
     arith_uint256 total_coinbase_amount{0};
+    arith_uint256 total_deposit_amount{0};
     CAmount total_unspendables_genesis_block{0};
     CAmount total_unspendables_bip30{0};
     CAmount total_unspendables_scripts{0};
@@ -59,10 +61,11 @@ struct DBVal {
 
     SERIALIZE_METHODS(DBVal, obj)
     {
-        uint256 prevout_spent, new_outputs, coinbase;
+        uint256 prevout_spent, new_outputs, coinbase, deposits;
         SER_WRITE(obj, prevout_spent = ArithToUint256(obj.total_prevout_spent_amount));
         SER_WRITE(obj, new_outputs = ArithToUint256(obj.total_new_outputs_ex_coinbase_amount));
         SER_WRITE(obj, coinbase = ArithToUint256(obj.total_coinbase_amount));
+        SER_WRITE(obj, deposits = ArithToUint256(obj.total_deposit_amount));
 
         READWRITE(obj.muhash);
         READWRITE(obj.transaction_output_count);
@@ -72,6 +75,7 @@ struct DBVal {
         READWRITE(prevout_spent);
         READWRITE(new_outputs);
         READWRITE(coinbase);
+        READWRITE(deposits);
         READWRITE(obj.total_unspendables_genesis_block);
         READWRITE(obj.total_unspendables_bip30);
         READWRITE(obj.total_unspendables_scripts);
@@ -80,6 +84,7 @@ struct DBVal {
         SER_READ(obj, obj.total_prevout_spent_amount = UintToArith256(prevout_spent));
         SER_READ(obj, obj.total_new_outputs_ex_coinbase_amount = UintToArith256(new_outputs));
         SER_READ(obj, obj.total_coinbase_amount = UintToArith256(coinbase));
+        SER_READ(obj, obj.total_deposit_amount = UintToArith256(deposits));
     }
 };
 }; // namespace
@@ -155,6 +160,23 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                 m_bogo_size += GetBogoSize(coin.out.scriptPubKey);
             }
 
+            // A deposit spends nothing: its amount comes from the parent
+            // chain.  It replaces the deposit state coin.
+            if (tx->IsDeposit()) {
+                m_total_deposit_amount += tx->GetValueOut();
+                const Coin& before{Assert(block.undo_data)->vtxundo.at(i - 1).vprevout.at(0)};
+                if (!Assert(drivechain::ParseDepositStateCoin(before))->IsInitial()) {
+                    RemoveCoinHash(m_muhash, drivechain::DepositStateOutpoint(), before);
+                    --m_transaction_output_count;
+                    m_bogo_size -= GetBogoSize(before.out.scriptPubKey);
+                }
+                const Coin after{drivechain::DepositStateCoinAfter(*tx, before, block.height)};
+                ApplyCoinHash(m_muhash, drivechain::DepositStateOutpoint(), after);
+                ++m_transaction_output_count;
+                m_bogo_size += GetBogoSize(after.out.scriptPubKey);
+                continue;
+            }
+
             // The coinbase tx has no undo data since no former output is spent
             if (!is_coinbase) {
                 const auto& tx_undo{Assert(block.undo_data)->vtxundo.at(i - 1)};
@@ -183,7 +205,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
     // the miner did not claim the full block reward. Unclaimed block
     // rewards are also unspendable.
     const CAmount temp_total_unspendable_amount{m_total_unspendables_genesis_block + m_total_unspendables_bip30 + m_total_unspendables_scripts + m_total_unspendables_unclaimed_rewards};
-    const arith_uint256 unclaimed_rewards{(m_total_prevout_spent_amount + m_total_subsidy) - (m_total_new_outputs_ex_coinbase_amount + m_total_coinbase_amount + temp_total_unspendable_amount)};
+    const arith_uint256 unclaimed_rewards{(m_total_prevout_spent_amount + m_total_subsidy + m_total_deposit_amount) - (m_total_new_outputs_ex_coinbase_amount + m_total_coinbase_amount + temp_total_unspendable_amount)};
     assert(unclaimed_rewards <= arith_uint256(std::numeric_limits<CAmount>::max()));
     m_total_unspendables_unclaimed_rewards += static_cast<CAmount>(unclaimed_rewards.GetLow64());
 
@@ -196,6 +218,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
     value.second.total_prevout_spent_amount = m_total_prevout_spent_amount;
     value.second.total_new_outputs_ex_coinbase_amount = m_total_new_outputs_ex_coinbase_amount;
     value.second.total_coinbase_amount = m_total_coinbase_amount;
+    value.second.total_deposit_amount = m_total_deposit_amount;
     value.second.total_unspendables_genesis_block = m_total_unspendables_genesis_block;
     value.second.total_unspendables_bip30 = m_total_unspendables_bip30;
     value.second.total_unspendables_scripts = m_total_unspendables_scripts;
@@ -251,6 +274,7 @@ std::optional<CCoinsStats> CoinStatsIndex::LookUpStats(const CBlockIndex& block_
     stats.total_prevout_spent_amount = entry.total_prevout_spent_amount;
     stats.total_new_outputs_ex_coinbase_amount = entry.total_new_outputs_ex_coinbase_amount;
     stats.total_coinbase_amount = entry.total_coinbase_amount;
+    stats.total_deposit_amount = entry.total_deposit_amount;
     stats.total_unspendables_genesis_block = entry.total_unspendables_genesis_block;
     stats.total_unspendables_bip30 = entry.total_unspendables_bip30;
     stats.total_unspendables_scripts = entry.total_unspendables_scripts;
@@ -295,6 +319,7 @@ bool CoinStatsIndex::CustomInit(const std::optional<interfaces::BlockRef>& block
         m_total_prevout_spent_amount = entry.total_prevout_spent_amount;
         m_total_new_outputs_ex_coinbase_amount = entry.total_new_outputs_ex_coinbase_amount;
         m_total_coinbase_amount = entry.total_coinbase_amount;
+        m_total_deposit_amount = entry.total_deposit_amount;
         m_total_unspendables_genesis_block = entry.total_unspendables_genesis_block;
         m_total_unspendables_bip30 = entry.total_unspendables_bip30;
         m_total_unspendables_scripts = entry.total_unspendables_scripts;
@@ -368,6 +393,15 @@ bool CoinStatsIndex::RevertBlock(const interfaces::BlockInfo& block)
             }
         }
 
+        if (tx->IsDeposit()) {
+            const Coin& before{block.undo_data->vtxundo.at(i - 1).vprevout.at(0)};
+            RemoveCoinHash(m_muhash, drivechain::DepositStateOutpoint(), drivechain::DepositStateCoinAfter(*tx, before, block.height));
+            if (!Assert(drivechain::ParseDepositStateCoin(before))->IsInitial()) {
+                ApplyCoinHash(m_muhash, drivechain::DepositStateOutpoint(), before);
+            }
+            continue;
+        }
+
         // The coinbase tx has no undo data since no former output is spent
         if (!is_coinbase) {
             const auto& tx_undo{block.undo_data->vtxundo.at(i - 1)};
@@ -393,6 +427,7 @@ bool CoinStatsIndex::RevertBlock(const interfaces::BlockInfo& block)
     m_total_prevout_spent_amount = read_out.second.total_prevout_spent_amount;
     m_total_new_outputs_ex_coinbase_amount = read_out.second.total_new_outputs_ex_coinbase_amount;
     m_total_coinbase_amount = read_out.second.total_coinbase_amount;
+    m_total_deposit_amount = read_out.second.total_deposit_amount;
     m_total_unspendables_genesis_block = read_out.second.total_unspendables_genesis_block;
     m_total_unspendables_bip30 = read_out.second.total_unspendables_bip30;
     m_total_unspendables_scripts = read_out.second.total_unspendables_scripts;

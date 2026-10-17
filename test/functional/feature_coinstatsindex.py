@@ -57,7 +57,7 @@ class CoinStatsIndexTest(BitcoinTestFramework):
     def block_sanity_check(self, block_info):
         block_subsidy = 50
         assert_equal(
-            block_info['prevout_spent'] + block_subsidy,
+            block_info['prevout_spent'] + block_subsidy + block_info['deposits'],
             block_info['new_outputs_ex_coinbase'] + block_info['coinbase'] + block_info['unspendable']
         )
 
@@ -121,6 +121,7 @@ class CoinStatsIndexTest(BitcoinTestFramework):
                 'unspendable': 50,
                 'prevout_spent': 0,
                 'new_outputs_ex_coinbase': 0,
+                'deposits': 0,
                 'coinbase': 0,
                 'unspendables': {
                     'genesis_block': 50,
@@ -138,6 +139,7 @@ class CoinStatsIndexTest(BitcoinTestFramework):
                 'unspendable': 0,
                 'prevout_spent': 50,
                 'new_outputs_ex_coinbase': Decimal('49.99968800'),
+                'deposits': 0,
                 'coinbase': Decimal('50.00031200'),
                 'unspendables': {
                     'genesis_block': 0,
@@ -176,6 +178,7 @@ class CoinStatsIndexTest(BitcoinTestFramework):
                 'unspendable': Decimal('20.99000000'),
                 'prevout_spent': 71,
                 'new_outputs_ex_coinbase': Decimal('49.99999000'),
+                'deposits': 0,
                 'coinbase': Decimal('50.01001000'),
                 'unspendables': {
                     'genesis_block': 0,
@@ -206,6 +209,7 @@ class CoinStatsIndexTest(BitcoinTestFramework):
                 'unspendable': 10,
                 'prevout_spent': 0,
                 'new_outputs_ex_coinbase': 0,
+                'deposits': 0,
                 'coinbase': 40,
                 'unspendables': {
                     'genesis_block': 0,
