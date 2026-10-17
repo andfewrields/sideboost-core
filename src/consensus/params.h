@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <optional>
 #include <vector>
 
 namespace Consensus {
@@ -103,6 +104,12 @@ struct Params {
      *  never higher.  Both should be multiples of WITNESS_SCALE_FACTOR.  */
     unsigned int nMaxBlockWeight{MAX_BLOCK_WEIGHT};
     int64_t nMaxBlockSigOpsCost{MAX_BLOCK_SIGOPS_COST};
+    /** BIP300 sidechain slot this chain occupies on its parent chain (ECX),
+     *  whose deposits it credits.  Unset: the chain takes no deposits.  */
+    std::optional<uint8_t> deposit_slot;
+    /** Confirmations on the parent chain a deposit's block needs before the
+     *  deposit can be credited (0: the parent chain's tip counts).  */
+    int nDepositMinDepth{0};
     /**
      * Hashes of blocks that
      * - are known to be consensus valid, and

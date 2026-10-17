@@ -349,6 +349,15 @@ public:
         return (vin.size() == 1 && vin[0].prevout.IsNull());
     }
 
+    /** A deposit from the parent chain (BIP300).  Its single input names the
+     *  parent chain's treasury output, and its scriptSig starts with
+     *  OP_RETURN, which no ordinary spend can do.  See drivechain/deposit.h.  */
+    bool IsDeposit() const
+    {
+        return vin.size() == 1 && !vin[0].prevout.IsNull() &&
+               !vin[0].scriptSig.empty() && vin[0].scriptSig[0] == OP_RETURN;
+    }
+
     bool Equals(const CTransaction& other, const EqualsOptions opts = {}) const
     {
         return nLockTime == other.nLockTime &&

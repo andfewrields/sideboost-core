@@ -18,6 +18,7 @@
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
+#include <drivechain/deposit.h>
 #include <cuckoocache.h>
 #include <flatfile.h>
 #include <hash.h>
@@ -320,7 +321,7 @@ void Chainstate::MaybeUpdateMempoolForReorg(
         auto it = queuedTx.rbegin();
         while (it != queuedTx.rend()) {
             // ignore validation errors in resurrected transactions
-            if (!fAddToMempool || (*it)->IsCoinBase() ||
+            if (!fAddToMempool || (*it)->IsCoinBase() || (*it)->IsDeposit() ||
                 AcceptToMemoryPool(*this, *it, GetTime(),
                     /*bypass_limits=*/true, /*test_accept=*/false).m_result_type !=
                         MempoolAcceptResult::ResultType::VALID) {
@@ -800,6 +801,9 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // Coinbase is only valid in a block, not as a loose transaction
     if (tx.IsCoinBase())
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "coinbase");
+    // Deposits likewise
+    if (tx.IsDeposit())
+        return state.Invalid(TxValidationResult::TX_CONSENSUS, "deposit");
 
     // Rather not work on nonstandard transactions (unless -testnet/-regtest)
     std::string reason;
@@ -2298,6 +2302,14 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
                 LogError("DisconnectBlock(): transaction and undo data inconsistent\n");
                 return DISCONNECT_FAILED;
             }
+            if (tx.IsDeposit()) {
+                // The deposit spent nothing, but advanced the deposit state
+                if (!drivechain::UndoDepositState(std::move(txundo.vprevout[0]), view)) {
+                    LogError("DisconnectBlock(): deposit state inconsistent\n");
+                    return DISCONNECT_FAILED;
+                }
+                continue;
+            }
             for (unsigned int j = tx.vin.size(); j > 0;) {
                 --j;
                 const COutPoint& out = tx.vin[j].prevout;
@@ -2363,6 +2375,65 @@ script_verify_flags GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
     return flags;
 }
 
+
+/** Check a block's deposits (BIP300 M5, see drivechain/deposit.h) against the
+ *  node's view of the parent chain.  A view that can't tell yet (unreachable,
+ *  behind) is an error, not a verdict on the block.  */
+static bool CheckDeposits(const CBlock& block, const CCoinsViewCache& view, const Consensus::Params& params,
+                          drivechain::DepositSource* source, BlockValidationState& state)
+{
+    using drivechain::BlockDeposits;
+    using drivechain::Deposit;
+    if (block.vtx.size() < 2 || !block.vtx[1]->IsDeposit()) return true;
+    if (!source) return state.Error("deposits can't be checked without a view of the parent chain (-enforcer)");
+
+    uint64_t next{drivechain::ReadDepositState(view).next_sequence};
+    std::map<uint256, std::vector<Deposit>> parent_blocks;
+    for (size_t i = 1; i < block.vtx.size() && block.vtx[i]->IsDeposit(); ++i, ++next) {
+        const CTransaction& tx{*block.vtx[i]};
+        const auto claim{drivechain::ParseDepositTransaction(tx)};
+        if (!claim) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-format",
+                                 strprintf("malformed deposit %s", tx.GetHash().ToString()));
+        }
+        if (claim->sequence != next) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-sequence",
+                                 strprintf("deposit %s is number %d, expected %d", tx.GetHash().ToString(), claim->sequence, next));
+        }
+        auto it{parent_blocks.find(claim->block_hash)};
+        if (it == parent_blocks.end()) {
+            BlockDeposits found;
+            try {
+                found = source->GetBlockDeposits(*params.deposit_slot, claim->block_hash, params.nDepositMinDepth);
+            } catch (const drivechain::DepositSourceError& e) {
+                return state.Error(strprintf("can't check deposits: %s", e.what()));
+            }
+            switch (found.status) {
+            case BlockDeposits::Status::OK:
+                break;
+            case BlockDeposits::Status::UNKNOWN:
+            case BlockDeposits::Status::TOO_SHALLOW:
+                return state.Error(strprintf("deposit %s is from parent block %s, not (yet) deep enough in our view of the parent chain",
+                                             tx.GetHash().ToString(), claim->block_hash.ToString()));
+            case BlockDeposits::Status::NOT_IN_BEST_CHAIN:
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-block",
+                                     strprintf("deposit %s is from parent block %s, which is not on the parent's best chain",
+                                               tx.GetHash().ToString(), claim->block_hash.ToString()));
+            }
+            it = parent_blocks.emplace(claim->block_hash, std::move(found.deposits)).first;
+        }
+        const auto deposit{std::ranges::find(it->second, claim->sequence, &Deposit::sequence)};
+        if (deposit == it->second.end()) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-unknown",
+                                 strprintf("parent block %s has no deposit number %d", claim->block_hash.ToString(), claim->sequence));
+        }
+        if (drivechain::MakeDepositTransaction(*deposit)->GetWitnessHash() != tx.GetWitnessHash()) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-mismatch",
+                                 strprintf("deposit %s does not match deposit number %d", tx.GetHash().ToString(), claim->sequence));
+        }
+    }
+    return true;
+}
 
 /** Apply the effects of this block (with given index) on the UTXO set represented by coins.
  *  Validity checks that depend on the UTXO set are also done; ConnectBlock()
@@ -2578,6 +2649,11 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         m_last_script_check_reason_logged = script_check_reason;
     }
 
+    if (!CheckDeposits(block, view, params.GetConsensus(), m_chainman.m_options.deposit_source, state)) {
+        LogInfo("Block validation error: %s", state.ToString());
+        return false;
+    }
+
     CBlockUndo blockundo;
 
     // Precomputed transaction data pointers must not be invalidated
@@ -2600,8 +2676,10 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         const CTransaction &tx = *(block.vtx[i]);
 
         nInputs += tx.vin.size();
+        // Checked by CheckDeposits: credits a deposit, spends nothing
+        const bool is_deposit{tx.IsDeposit()};
 
-        if (!tx.IsCoinBase())
+        if (!tx.IsCoinBase() && !is_deposit)
         {
             CAmount txfee = 0;
             TxValidationState tx_state;
@@ -2644,7 +2722,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
             break;
         }
 
-        if (!tx.IsCoinBase() && fScriptChecks)
+        if (!tx.IsCoinBase() && !is_deposit && fScriptChecks)
         {
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
             bool tx_ok;
@@ -2670,7 +2748,11 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         if (i > 0) {
             blockundo.vtxundo.emplace_back();
         }
-        UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
+        if (is_deposit) {
+            drivechain::UpdateCoinsForDeposit(tx, view, blockundo.vtxundo.back(), pindex->nHeight);
+        } else {
+            UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
+        }
     }
     const auto time_3{SteadyClock::now()};
     m_chainman.time_connect += time_3 - time_2;
@@ -4236,6 +4318,16 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
         if (!IsFinalTx(*tx, nHeight, nLockTimeCutoff)) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-nonfinal", "non-final transaction");
         }
+    }
+
+    // Deposits come right after the coinbase, on chains that take them.  (Not
+    // in CheckBlock, whose failures a compact block doesn't cache.)
+    for (unsigned int i = 1, deposits_end = 1; i < block.vtx.size(); i++) {
+        if (!block.vtx[i]->IsDeposit()) continue;
+        if (!chainman.GetConsensus().deposit_slot)
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-deposit", "this chain takes no deposits");
+        if (i != deposits_end++)
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-deposit-position", "deposit after an ordinary transaction");
     }
 
     // Enforce rule that the coinbase starts with serialized block height

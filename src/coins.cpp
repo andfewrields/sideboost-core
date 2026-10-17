@@ -387,6 +387,11 @@ CCoinsViewCache::ResetGuard CoinsViewOverlay::StartFetching(const CBlock& block 
         earlier_txids.reserve(block.vtx.size());
         earlier_txids.emplace(block.vtx[0]->GetHash());
         for (const auto& tx : block.vtx | std::views::drop(1)) {
+            // A deposit's input is on the parent chain: ConnectBlock never reads it
+            if (tx->IsDeposit()) {
+                earlier_txids.emplace(tx->GetHash());
+                continue;
+            }
             for (const auto& input : tx->vin) {
                 if (!earlier_txids.contains(input.prevout.hash)) m_inputs.emplace_back(input.prevout);
             }

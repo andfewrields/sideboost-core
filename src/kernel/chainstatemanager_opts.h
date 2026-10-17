@@ -20,6 +20,9 @@
 
 class CChainParams;
 class ValidationSignals;
+namespace drivechain {
+class DepositSource;
+} // namespace drivechain
 
 inline constexpr auto DEFAULT_MAX_TIP_AGE{24h};
 inline constexpr int32_t DEFAULT_PREVOUTFETCH_THREADS{8};
@@ -54,6 +57,9 @@ struct ChainstateManagerOpts {
     int32_t prevoutfetch_threads_num{DEFAULT_PREVOUTFETCH_THREADS};
     size_t script_execution_cache_bytes{DEFAULT_SCRIPT_EXECUTION_CACHE_BYTES};
     size_t signature_cache_bytes{DEFAULT_SIGNATURE_CACHE_BYTES};
+    //! The node's view of the parent chain's deposits; required on chains
+    //! that take deposits (Consensus::Params::deposit_slot).
+    drivechain::DepositSource* deposit_source{nullptr};
 };
 
 } // namespace kernel

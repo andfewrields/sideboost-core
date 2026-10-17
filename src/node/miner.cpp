@@ -14,6 +14,7 @@
 #include <consensus/params.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
+#include <drivechain/deposit.h>
 #include <interfaces/types.h>
 #include <node/blockstorage.h>
 #include <node/kernel_notifications.h>
@@ -169,6 +170,8 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     pblock->nTime = TicksSinceEpoch<std::chrono::seconds>(NodeClock::now());
     m_lock_time_cutoff = pindexPrev->GetMedianTimePast();
 
+    addDeposits();
+
     if (m_mempool) {
         LOCK(m_mempool->cs);
         m_mempool->StartBlockBuilding();
@@ -259,6 +262,35 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
              Ticks<MillisecondsDouble>(time_2 - time_start));
 
     return std::move(pblocktemplate);
+}
+
+void BlockAssembler::addDeposits()
+{
+    const Consensus::Params& consensus{chainparams.GetConsensus()};
+    drivechain::DepositSource* const source{m_chainstate.m_chainman.m_options.deposit_source};
+    if (!consensus.deposit_slot || !source) return;
+
+    const drivechain::DepositState state{drivechain::ReadDepositState(m_chainstate.CoinsTip())};
+    std::vector<drivechain::Deposit> deposits;
+    try {
+        deposits = source->GetNewDeposits(*consensus.deposit_slot, state.next_sequence, state.last_block, consensus.nDepositMinDepth);
+    } catch (const drivechain::DepositSourceError& e) {
+        LogWarning("Building a block without deposits: %s", e.what());
+        return;
+    }
+    // In order, as many as fit
+    for (const drivechain::Deposit& deposit : deposits) {
+        CTransactionRef tx{drivechain::MakeDepositTransaction(deposit)};
+        const int64_t weight{GetTransactionWeight(*tx)};
+        const int64_t sigops_cost{GetLegacySigOpCount(*tx) * WITNESS_SCALE_FACTOR};
+        if (!TestChunkBlockLimits(weight, sigops_cost)) break;
+        pblocktemplate->block.vtx.push_back(std::move(tx));
+        pblocktemplate->vTxFees.push_back(0);
+        pblocktemplate->vTxSigOpsCost.push_back(sigops_cost);
+        nBlockWeight += weight;
+        nBlockSigOpsCost += sigops_cost;
+        ++nBlockTx;
+    }
 }
 
 bool BlockAssembler::TestChunkBlockLimits(int64_t chunk_weight, int64_t chunk_sigops_cost) const

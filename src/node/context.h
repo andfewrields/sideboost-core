@@ -28,6 +28,9 @@ class ECC_Context;
 class NetGroupManager;
 class PeerManager;
 class TorController;
+namespace drivechain {
+class DepositSource;
+} // namespace drivechain
 namespace interfaces {
 class Chain;
 class ChainClient;
@@ -74,6 +77,8 @@ struct NodeContext {
     std::unique_ptr<PeerManager> peerman;
     std::unique_ptr<TorController> tor_controller;
     std::unique_ptr<ChainstateManager> chainman;
+    //! The node's view of the parent chain's deposits (chains that take deposits)
+    std::unique_ptr<drivechain::DepositSource> deposit_source;
     std::unique_ptr<BanMan> banman;
     ArgsManager* args{nullptr}; // Currently a raw pointer because the memory is not managed by this struct
     std::vector<BaseIndex*> indexes; // raw pointers because memory is not managed by this struct

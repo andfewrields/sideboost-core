@@ -119,6 +119,10 @@ void ReadRegTestArgs(const ArgsManager& args, CChainParams::RegTestOptions& opti
 {
     if (auto value = args.GetBoolArg("-fastprune")) options.fastprune = *value;
     if (HasTestOption(args, "bip94")) options.enforce_bip94 = true;
+    if (const auto slot{args.GetIntArg("-depositslot")}) {
+        if (*slot < 0 || *slot > 255) throw std::runtime_error(strprintf("Invalid -depositslot (%d): must be a slot number (0 to 255)", *slot));
+        options.deposit_slot = *slot;
+    }
 
     HandleDeploymentArgs(args, options.dep_opts);
 }

@@ -6,6 +6,7 @@
 
 #include <addrman.h>
 #include <banman.h>
+#include <drivechain/deposit.h>
 #include <interfaces/chain.h>
 #include <interfaces/mining.h>
 #include <kernel/context.h>

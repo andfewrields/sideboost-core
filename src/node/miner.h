@@ -96,6 +96,8 @@ private:
     // utility functions
     /** Clear the block's state and prepare for assembling a new block */
     void resetBlock();
+    /** Add the deposits ready to be credited (see drivechain/deposit.h). */
+    void addDeposits() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
     /** Add a tx to the block */
     void AddToBlock(const CTxMemPoolEntry& entry);
 

@@ -22,6 +22,7 @@
 #include <consensus/params.h>
 #include <crypto/hex_base.h>
 #include <dbwrapper.h>
+#include <drivechain/enforcer.h>
 #include <httprpc.h>
 #include <httpserver.h>
 #include <index/base.h>
@@ -512,6 +513,8 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
                              kernel::DEFAULT_XOR_BLOCKSDIR),
                    ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-fastprune", "Use smaller block files and lower minimum prune height for testing purposes", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-depositslot=<n>", "Take deposits from BIP300 sidechain slot <n> of the parent chain (regtest-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-enforcer=<host:port>", strprintf("The gRPC address of the parent chain's bip300301_enforcer, used to check and credit deposits. Required on chains that take deposits (default port: %u)", drivechain::DEFAULT_ENFORCER_PORT), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
 #if HAVE_SYSTEM
     argsman.AddArg("-blocknotify=<cmd>", "Execute command when the best block changes (%s in cmd is replaced by block hash). Not run for blocks connected during initial block download or reindexing.", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
 #endif
@@ -981,6 +984,17 @@ bool AppInitParameterInteraction(const ArgsManager& args)
         return InitError(errors);
     }
 
+    if (chainparams.GetConsensus().deposit_slot) {
+        uint16_t port{drivechain::DEFAULT_ENFORCER_PORT};
+        std::string host;
+        if (!args.IsArgSet("-enforcer")) {
+            return InitError(_("This chain takes deposits from its parent chain: set -enforcer to the gRPC address of the parent chain's bip300301_enforcer."));
+        }
+        if (!SplitHostPort(args.GetArg("-enforcer", ""), port, host) || host.empty()) {
+            return InitError(InvalidPortErrMsg("-enforcer", args.GetArg("-enforcer", "")));
+        }
+    }
+
     // Testnet3 deprecation warning
     if (chain == ChainType::TESTNET) {
         LogInfo("Warning: Support for testnet3 is deprecated and will be removed in an upcoming release. Consider switching to testnet4.\n");
@@ -1403,6 +1417,15 @@ static ChainstateLoadResult InitAndLoadChainstate(
         .signals = node.validation_signals.get(),
     };
     Assert(ApplyArgsManOptions(args, chainman_opts)); // no error can happen, already checked in AppInitParameterInteraction
+    if (chainparams.GetConsensus().deposit_slot) {
+        if (!node.deposit_source) {
+            uint16_t port{drivechain::DEFAULT_ENFORCER_PORT};
+            std::string host;
+            Assert(SplitHostPort(args.GetArg("-enforcer", ""), port, host)); // checked in AppInitParameterInteraction
+            node.deposit_source = std::make_unique<drivechain::EnforcerClient>(host, port, drivechain::ENFORCER_TIMEOUT);
+        }
+        chainman_opts.deposit_source = node.deposit_source.get();
+    }
 
     BlockManager::Options blockman_opts{
         .chainparams = chainman_opts.chainparams,
@@ -1941,6 +1964,17 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     }
 
     ChainstateManager& chainman = *Assert(node.chainman);
+
+    if (chainman.GetConsensus().deposit_slot) {
+        // Retry blocks whose deposits our view of the parent chain couldn't
+        // check yet (enforcer unreachable or behind)
+        scheduler.scheduleEvery([&chainman] {
+            BlockValidationState state;
+            if (!chainman.ActiveChainstate().ActivateBestChain(state)) {
+                LogDebug(BCLog::VALIDATION, "Retrying blocks with deposits: %s", state.ToString());
+            }
+        }, drivechain::DEPOSIT_RETRY_INTERVAL);
+    }
 
     assert(!node.fee_estimator_man);
     // Don't initialize fee estimation with old data if we don't relay transactions,

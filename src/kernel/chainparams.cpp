@@ -470,6 +470,9 @@ public:
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowNoRetargeting = true;
         consensus.enforce_BIP94 = opts.enforce_bip94;
+        /* Testing: deposits only when asked for (-depositslot), since they
+           need a parent chain and its enforcer.  */
+        consensus.deposit_slot = opts.deposit_slot;
 
         /* Testing: short versionbits periods, so deployments can be
            exercised in a few hundred blocks.  */
