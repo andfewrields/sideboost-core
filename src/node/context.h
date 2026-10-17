@@ -30,6 +30,7 @@ class PeerManager;
 class TorController;
 namespace drivechain {
 class DepositSource;
+class ParentChainView;
 } // namespace drivechain
 namespace interfaces {
 class Chain;
@@ -76,9 +77,12 @@ struct NodeContext {
     std::unique_ptr<FeeRateEstimatorManager> fee_estimator_man;
     std::unique_ptr<PeerManager> peerman;
     std::unique_ptr<TorController> tor_controller;
-    std::unique_ptr<ChainstateManager> chainman;
-    //! The node's view of the parent chain's deposits (chains that take deposits)
+    //! The parent chain's enforcer, and the node's view of the parent chain
+    //! through it (chains that take deposits).  Outlive chainman, which uses
+    //! the view.
     std::unique_ptr<drivechain::DepositSource> deposit_source;
+    std::unique_ptr<drivechain::ParentChainView> parent_chain;
+    std::unique_ptr<ChainstateManager> chainman;
     std::unique_ptr<BanMan> banman;
     ArgsManager* args{nullptr}; // Currently a raw pointer because the memory is not managed by this struct
     std::vector<BaseIndex*> indexes; // raw pointers because memory is not managed by this struct

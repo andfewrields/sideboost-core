@@ -107,8 +107,8 @@ struct Params {
     /** BIP300 sidechain slot this chain occupies on its parent chain (ECX),
      *  whose deposits it credits.  Unset: the chain takes no deposits.  */
     std::optional<uint8_t> deposit_slot;
-    /** Confirmations on the parent chain a deposit's block needs before the
-     *  deposit can be credited (0: the parent chain's tip counts).  */
+    /** Blocks on top of a deposit's parent chain block before the deposit
+     *  can be credited (0: the parent chain's tip counts).  */
     int nDepositMinDepth{0};
     /**
      * Hashes of blocks that

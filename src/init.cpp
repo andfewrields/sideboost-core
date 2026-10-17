@@ -23,6 +23,7 @@
 #include <crypto/hex_base.h>
 #include <dbwrapper.h>
 #include <drivechain/enforcer.h>
+#include <drivechain/parentchain.h>
 #include <httprpc.h>
 #include <httpserver.h>
 #include <index/base.h>
@@ -1423,8 +1424,10 @@ static ChainstateLoadResult InitAndLoadChainstate(
             std::string host;
             Assert(SplitHostPort(args.GetArg("-enforcer", ""), port, host)); // checked in AppInitParameterInteraction
             node.deposit_source = std::make_unique<drivechain::EnforcerClient>(host, port, drivechain::ENFORCER_TIMEOUT);
+            node.parent_chain = std::make_unique<drivechain::ParentChainView>(
+                *node.deposit_source, *chainparams.GetConsensus().deposit_slot, chainparams.GetConsensus().nDepositMinDepth);
         }
-        chainman_opts.deposit_source = node.deposit_source.get();
+        chainman_opts.parent_chain = node.parent_chain.get();
     }
 
     BlockManager::Options blockman_opts{
@@ -1966,14 +1969,10 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     ChainstateManager& chainman = *Assert(node.chainman);
 
     if (chainman.GetConsensus().deposit_slot) {
-        // Retry blocks whose deposits our view of the parent chain couldn't
-        // check yet (enforcer unreachable or behind)
-        scheduler.scheduleEvery([&chainman] {
-            BlockValidationState state;
-            if (!chainman.ActiveChainstate().ActivateBestChain(state)) {
-                LogDebug(BCLog::VALIDATION, "Retrying blocks with deposits: %s", state.ToString());
-            }
-        }, drivechain::DEPOSIT_RETRY_INTERVAL);
+        // Follow parent chain reorgs, and retry blocks whose deposits our
+        // view of the parent chain couldn't check yet (enforcer unreachable
+        // or behind)
+        scheduler.scheduleEvery([&chainman] { drivechain::SyncWithParentChain(chainman); }, drivechain::DEPOSIT_RETRY_INTERVAL);
     }
 
     assert(!node.fee_estimator_man);

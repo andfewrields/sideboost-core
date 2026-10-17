@@ -820,6 +820,9 @@ public:
     /** Remove invalidity status from a block, its descendants and ancestors and reconsider them for activation */
     void ResetBlockFailureFlags(CBlockIndex* pindex) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
+    /** Set or clear BLOCK_FAILED_PARENT_CHAIN on a block. */
+    void SetParentChainFailure(CBlockIndex& index, bool failed) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
     /** Replay blocks that aren't fully applied to the database. */
     bool ReplayBlocks();
 

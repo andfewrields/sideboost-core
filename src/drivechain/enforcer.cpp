@@ -20,11 +20,6 @@ namespace drivechain {
 
 namespace {
 
-/** The enforcer answered with an error (as opposed to not answering).  */
-struct EnforcerReplyError : DepositSourceError {
-    using DepositSourceError::DepositSourceError;
-};
-
 const UniValue& Field(const UniValue& obj, std::string_view key)
 {
     if (!obj.isObject()) throw DepositSourceError("enforcer reply: expected an object");
@@ -72,27 +67,37 @@ std::string Dechunk(std::string_view body)
     }
 }
 
-std::vector<Deposit> ParseDeposits(const UniValue& block_info, const uint256& block_hash)
+ParentHeader ParseHeader(const UniValue& info)
 {
-    std::vector<Deposit> res;
+    return {HashField(info, "blockHash"), HashField(info, "prevBlockHash"), static_cast<int>(U64Field(info, "height"))};
+}
+
+/** The treasury events in a block: deposits, and withdrawals that succeeded.  */
+std::vector<TreasuryEvent> ParseEvents(const UniValue& block_info, const ParentHeader& header)
+{
+    std::vector<TreasuryEvent> res;
     const UniValue& events{Field(block_info, "events")};
     if (events.isNull()) return res;
     if (!events.isArray()) throw DepositSourceError("enforcer reply: bad events");
     for (const UniValue& event : events.getValues()) {
-        const UniValue& deposit{Field(event, "deposit")};
-        if (deposit.isNull()) continue;
-        const UniValue& outpoint{Field(deposit, "outpoint")};
-        const UniValue& output{Field(deposit, "output")};
-        const auto address{TryParseHex<unsigned char>(Field(Field(output, "address"), "hex").getValStr())};
-        const uint64_t value{U64Field(output, "valueSats")};
-        if (!address || value > uint64_t(MAX_MONEY)) throw DepositSourceError("enforcer reply: bad deposit");
-        res.push_back(Deposit{
-            .sequence = U64Field(deposit, "sequenceNumber"),
-            .block_hash = block_hash,
-            .outpoint = COutPoint{Txid::FromUint256(HashField(outpoint, "txid")), static_cast<uint32_t>(U64Field(outpoint, "vout"))},
-            .address = std::move(*address),
-            .value = static_cast<CAmount>(value),
-        });
+        if (const UniValue& deposit{Field(event, "deposit")}; !deposit.isNull()) {
+            const UniValue& outpoint{Field(deposit, "outpoint")};
+            const UniValue& output{Field(deposit, "output")};
+            const auto address{TryParseHex<unsigned char>(Field(Field(output, "address"), "hex").getValStr())};
+            const uint64_t value{U64Field(output, "valueSats")};
+            if (!address || value > uint64_t(MAX_MONEY)) throw DepositSourceError("enforcer reply: bad deposit");
+            const uint64_t sequence{U64Field(deposit, "sequenceNumber")};
+            res.push_back({sequence, header.hash, header.height, Deposit{
+                .sequence = sequence,
+                .outpoint = COutPoint{Txid::FromUint256(HashField(outpoint, "txid")), static_cast<uint32_t>(U64Field(outpoint, "vout"))},
+                .address = std::move(*address),
+                .value = static_cast<CAmount>(value),
+            }});
+        } else if (const UniValue& withdrawal{Field(event, "withdrawalBundle")}; !withdrawal.isNull()) {
+            const UniValue& succeeded{Field(Field(withdrawal, "event"), "succeeded")};
+            if (succeeded.isNull()) continue;
+            res.push_back({U64Field(succeeded, "sequenceNumber"), header.hash, header.height, std::nullopt});
+        }
     }
     return res;
 }
@@ -161,116 +166,48 @@ UniValue EnforcerClient::Call(const std::string& method, const UniValue& request
     UniValue reply;
     if (!reply.read(reply_body)) throw DepositSourceError(strprintf("enforcer reply to %s is not JSON", method));
     if (status[1] != "200") {
-        throw EnforcerReplyError(strprintf("enforcer: %s failed (HTTP %s): %s", method, status[1], Field(reply, "message").getValStr()));
+        throw DepositSourceError(strprintf("enforcer: %s failed (HTTP %s): %s", method, status[1], Field(reply, "message").getValStr()));
     }
     return reply;
 }
 
-EnforcerClient::Header EnforcerClient::GetTip() const
+ParentHeader EnforcerClient::GetTip()
 {
     const UniValue reply{Call("ValidatorService/GetChainTip", UniValue{UniValue::VOBJ})};
-    const UniValue& info{Field(reply, "blockHeaderInfo")};
-    return {HashField(info, "blockHash"), HashField(info, "prevBlockHash"), static_cast<int>(U64Field(info, "height"))};
+    return ParseHeader(Field(reply, "blockHeaderInfo"));
 }
 
-std::vector<EnforcerClient::Header> EnforcerClient::GetHeaders(const uint256& hash, uint32_t max_ancestors) const
+std::vector<ParentHeader> EnforcerClient::GetHeaders(const uint256& hash, uint32_t max_ancestors)
 {
     UniValue request{UniValue::VOBJ};
     request.pushKV("blockHash", HashArg(hash));
     request.pushKV("maxAncestors", max_ancestors);
-    UniValue reply;
-    try {
-        reply = Call("ValidatorService/GetBlockHeaderInfo", request);
-    } catch (const EnforcerReplyError&) {
-        return {}; // unknown block
-    }
-    std::vector<Header> res;
+    const UniValue reply{Call("ValidatorService/GetBlockHeaderInfo", request)};
+    std::vector<ParentHeader> res;
     const UniValue& infos{Field(reply, "headerInfos")};
-    if (infos.isNull()) return res;
+    if (infos.isNull()) return res; // unknown block
     if (!infos.isArray()) throw DepositSourceError("enforcer reply: bad headerInfos");
-    for (const UniValue& info : infos.getValues()) {
-        res.push_back({HashField(info, "blockHash"), HashField(info, "prevBlockHash"), static_cast<int>(U64Field(info, "height"))});
-    }
+    for (const UniValue& info : infos.getValues()) res.push_back(ParseHeader(info));
     return res;
 }
 
-bool EnforcerClient::IsInBestChain(const Header& header, const Header& tip) const
+std::vector<TreasuryEvent> EnforcerClient::GetTreasuryEvents(uint8_t slot, const std::optional<uint256>& start, const uint256& end)
 {
-    if (header.height > tip.height) return false;
-    Header cur{tip};
-    while (cur.height > header.height) {
-        const auto ancestors{GetHeaders(cur.hash, std::min(cur.height - header.height, 1000))};
-        if (ancestors.size() < 2 || ancestors.back().height >= cur.height) throw DepositSourceError("enforcer: cannot walk the best chain");
-        cur = ancestors.back();
-    }
-    return cur.hash == header.hash;
-}
-
-BlockDeposits EnforcerClient::GetBlockDeposits(uint8_t slot, const uint256& block_hash, int min_depth)
-{
-    using enum BlockDeposits::Status;
-    const auto headers{GetHeaders(block_hash, 0)};
-    if (headers.empty()) return {UNKNOWN, {}};
-    const Header tip{GetTip()};
-    if (!IsInBestChain(headers[0], tip)) return {NOT_IN_BEST_CHAIN, {}};
-    if (tip.height - headers[0].height < min_depth) return {TOO_SHALLOW, {}};
-
     UniValue request{UniValue::VOBJ};
-    request.pushKV("blockHash", HashArg(block_hash));
     request.pushKV("sidechainId", slot);
-    const UniValue reply{Call("ValidatorService/GetBlockInfo", request)};
-    const UniValue& infos{Field(reply, "infos")};
-    if (!infos.isArray() || infos.empty()) throw DepositSourceError("enforcer: no info for a known block");
-    return {OK, ParseDeposits(Field(infos[0], "blockInfo"), block_hash)};
-}
-
-std::vector<Deposit> EnforcerClient::GetNewDeposits(uint8_t slot, uint64_t first_sequence, const uint256& hint, int min_depth)
-{
-    Header end{GetTip()};
-    if (end.height < min_depth) return {};
-    if (min_depth > 0) {
-        const auto ancestors{GetHeaders(end.hash, min_depth)};
-        if (ancestors.empty() || ancestors.back().height != end.height - min_depth) throw DepositSourceError("enforcer: cannot walk the best chain");
-        end = ancestors.back();
-    }
-
-    // Start from the parent of the hint, so later deposits in the hint's own
-    // block are found too.
-    std::optional<uint256> start;
-    if (!hint.IsNull()) {
-        if (const auto headers{GetHeaders(hint, 0)}; !headers.empty()) start = headers[0].prev;
-    }
-
-    UniValue reply;
-    while (true) {
-        UniValue request{UniValue::VOBJ};
-        request.pushKV("sidechainId", slot);
-        if (start) request.pushKV("startBlockHash", HashArg(*start));
-        request.pushKV("endBlockHash", HashArg(end.hash));
-        try {
-            reply = Call("ValidatorService/GetTwoWayPegData", request);
-            break;
-        } catch (const EnforcerReplyError&) {
-            // The hint left the best chain: search it all.
-            if (!start) throw;
-            start.reset();
-        }
-    }
-
-    std::vector<Deposit> deposits;
+    if (start) request.pushKV("startBlockHash", HashArg(*start));
+    request.pushKV("endBlockHash", HashArg(end));
+    const UniValue reply{Call("ValidatorService/GetTwoWayPegData", request)};
+    std::vector<TreasuryEvent> res;
     const UniValue& blocks{Field(reply, "blocks")};
-    if (blocks.isArray()) {
-        for (const UniValue& block : blocks.getValues()) {
-            for (Deposit& deposit : ParseDeposits(Field(block, "blockInfo"), HashField(Field(block, "blockHeaderInfo"), "blockHash"))) {
-                if (deposit.sequence >= first_sequence) deposits.push_back(std::move(deposit));
-            }
+    if (blocks.isNull()) return res;
+    if (!blocks.isArray()) throw DepositSourceError("enforcer reply: bad blocks");
+    for (const UniValue& block : blocks.getValues()) {
+        for (TreasuryEvent& event : ParseEvents(Field(block, "blockInfo"), ParseHeader(Field(block, "blockHeaderInfo")))) {
+            res.push_back(std::move(event));
         }
     }
-    std::ranges::sort(deposits, {}, &Deposit::sequence);
-    size_t contiguous{0};
-    while (contiguous < deposits.size() && deposits[contiguous].sequence == first_sequence + contiguous) ++contiguous;
-    deposits.resize(contiguous);
-    return deposits;
+    return res;
 }
 
 } // namespace drivechain

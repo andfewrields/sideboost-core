@@ -8,7 +8,7 @@ Runs a parent chain: an ECX regtest node and its bip300301_enforcer, given by
 the environment variables ECX_BITCOIND and BIP300301_ENFORCER (the test is
 skipped without them).  Activates slot 83 there, deposits into it, and checks
 that SideBoost nodes credit the deposits, reject blocks that credit them
-wrongly, and roll them back on a reorg.
+wrongly, and roll them back on a reorg of either chain.
 """
 
 import json
@@ -141,12 +141,10 @@ class DepositsTest(BitcoinTestFramework):
         return [tx for tx in node.getblock(blockhash, 2)["tx"][1:] if tx["vin"][0].get("scriptSig", {}).get("hex", "").startswith("6a")]
 
     @staticmethod
-    def deposit_tx(parent_txid, parent_block, sequence, value, script):
+    def deposit_tx(parent_txid, sequence, value, script):
         tx = CTransaction()
         tx.version = 2
-        tx.vin = [CTxIn(COutPoint(int(parent_txid, 16), 0),
-                        CScript([OP_RETURN, bytes.fromhex(parent_block)[::-1], sequence.to_bytes(8, "little")]),
-                        SEQUENCE_FINAL)]
+        tx.vin = [CTxIn(COutPoint(int(parent_txid, 16), 0), CScript([OP_RETURN, sequence.to_bytes(8, "little")]), SEQUENCE_FINAL)]
         tx.vout = [CTxOut(value, script)]
         return tx
 
@@ -156,6 +154,38 @@ class DepositsTest(BitcoinTestFramework):
         block = create_block(int(tip, 16), create_coinbase(height, nValue=0), txlist=txs)
         block.solve()
         return block, node.submitblock(block.serialize().hex())
+
+    def confirm(self):
+        """Mine the confirmations deposits need (3 blocks on top)."""
+        self.ecx_mine(3)
+
+    def ecx_reorg(self, first_replaced, txs):
+        """Replace parent block `first_replaced` and its descendants by a
+        longer branch whose first block holds `txs` (raw hex) and nothing
+        else.  Return the new branch's first block."""
+        height = self.ecx.getblockheader(first_replaced)["height"]
+        length = self.ecx.getblockcount() - height + 2
+        self.ecx.invalidateblock(first_replaced)
+        address = self.ecx.getnewaddress()
+        new_first = self.ecx.generateblock(address, txs)["hash"]
+        for _ in range(length - 1):
+            self.ecx.generateblock(address, [])
+        self.wait_for_enforcer()
+        return new_first
+
+    def wait_for_enforcer(self):
+        tip = self.ecx.getbestblockhash()
+        self.wait_until(lambda: self.enforcer("ValidatorService/GetChainTip")["blockHeaderInfo"]["blockHash"]["hex"] == tip)
+
+    def sync_parent_chain(self):
+        """Have every node follow the parent chain to its current tip now."""
+        message = f"Following the parent chain to tip {self.ecx.getbestblockhash()}".encode()
+        for node in self.nodes:
+            node.mockscheduler(6)
+            self.wait_until(lambda: message in node.debug_log_path.read_bytes())
+
+    def status(self, node, blockhash):
+        return next(t["status"] for t in node.getchaintips() if t["hash"] == blockhash)
 
     def run_test(self):
         node0, node1 = self.nodes
@@ -168,10 +198,12 @@ class DepositsTest(BitcoinTestFramework):
         self.ecx_mine(8)
         assert_equal([s["sidechainNumber"] for s in self.enforcer("ValidatorService/GetSidechains").get("sidechains", [])], [SLOT])
 
-        self.log.info("A block credits a deposit")
+        self.log.info("A block credits a deposit once it has 3 confirmations")
         addr0 = node0.getnewaddress()
         txid0 = self.deposit(addr0, Decimal("1.5"))
-        parent0 = self.ecx_mine()
+        self.ecx_mine(3)
+        assert_equal(self.deposits_in(node0, self.generate(node0, 1)[0]), [])
+        self.ecx_mine()
         block0 = self.generate(node0, 1)[0]
         deposits = self.deposits_in(node0, block0)
         assert_equal(len(deposits), 1)
@@ -188,6 +220,7 @@ class DepositsTest(BitcoinTestFramework):
         self.ecx_mine()
         txid3 = self.deposit(addr0, Decimal("0.1"))
         self.ecx_mine()
+        self.confirm()
         block1 = self.generate(node0, 1)[0]
         deposits = self.deposits_in(node0, block1)
         assert_equal([d["vin"][0]["txid"] for d in deposits], [txid1, txid2, txid3])
@@ -209,29 +242,31 @@ class DepositsTest(BitcoinTestFramework):
         addr4 = node0.getnewaddress()
         script4 = bytes.fromhex(node0.getaddressinfo(addr4)["scriptPubKey"])
         txid4 = self.deposit(addr4, Decimal("0.3"))
-        parent4 = self.ecx_mine()
+        self.ecx_mine()
         txid5 = self.deposit(addr4, Decimal("0.4"))
-        parent5 = self.ecx_mine()
-        good4 = self.deposit_tx(txid4, parent4, 4, int(Decimal("0.3") * COIN), script4)
-        good5 = self.deposit_tx(txid5, parent5, 5, int(Decimal("0.4") * COIN), script4)
-        _, res = self.submit(node0, [self.deposit_tx(txid4, parent4, 4, int(Decimal("0.3") * COIN) + 1, script4)])
+        self.ecx_mine()
+        self.confirm()
+        value4, value5 = int(Decimal("0.3") * COIN), int(Decimal("0.4") * COIN)
+        good4 = self.deposit_tx(txid4, 4, value4, script4)
+        good5 = self.deposit_tx(txid5, 5, value5, script4)
+        _, res = self.submit(node0, [self.deposit_tx(txid4, 4, value4 + 1, script4)])
         assert_equal(res, "bad-deposit-mismatch")
-        _, res = self.submit(node0, [self.deposit_tx(txid4, parent4, 4, int(Decimal("0.3") * COIN), CScript([OP_TRUE]))])
+        _, res = self.submit(node0, [self.deposit_tx(txid4, 4, value4, CScript([OP_TRUE]))])
         assert_equal(res, "bad-deposit-mismatch")
-        _, res = self.submit(node0, [good5])
+        _, res = self.submit(node0, [self.deposit_tx(txid3, 3, int(Decimal("0.1") * COIN), script4)])
         assert_equal(res, "bad-deposit-sequence")
-        _, res = self.submit(node0, [self.deposit_tx(txid4, parent0, 4, int(Decimal("0.3") * COIN), script4)])
-        assert_equal(res, "bad-deposit-unknown")
+        _, res = self.submit(node0, [good5])
+        assert_equal(res, "bad-deposit-skipped")
         ordinary = CTransaction()
         ordinary.vin = [CTxIn(COutPoint(int(block0, 16), 0))]
         ordinary.vout = [CTxOut(1, CScript([OP_TRUE]))]
         _, res = self.submit(node0, [ordinary, good4])
         assert_equal(res, "bad-txns-deposit-position")
 
-        self.log.info("A deposit from a parent block we don't know waits instead of failing")
-        unknown = self.deposit_tx(txid4, "11" * 32, 4, int(Decimal("0.3") * COIN), script4)
+        self.log.info("A deposit our parent chain view doesn't know waits instead of failing")
+        unknown = self.deposit_tx("11" * 32, 6, value4, script4)
         tip = node0.getbestblockhash()
-        assert_raises_rpc_error(-25, "not (yet) deep enough", self.submit, node0, [unknown])
+        assert_raises_rpc_error(-25, "not (yet) confirmed", self.submit, node0, [good4, good5, unknown])
         stuck = [t for t in node0.getchaintips() if t["status"] == "valid-headers"]
         assert_equal(len(stuck), 1)
         assert_equal(node0.getbestblockhash(), tip)
@@ -258,8 +293,54 @@ class DepositsTest(BitcoinTestFramework):
         self.connect_nodes(0, 1)
         txid6 = self.deposit(addr0, Decimal("0.01"))
         self.ecx_mine()
+        self.confirm()
         block6 = self.generate(node0, 1)[0]
         assert_equal([d["vin"][0]["txid"] for d in self.deposits_in(node0, block6)], [txid6])
+
+        self.log.info("A parent chain reorg that mines a deposit again changes nothing")
+        addr7 = node0.getnewaddress()
+        txid7 = self.deposit(addr7, Decimal("0.07"))
+        parent7 = self.ecx_mine()
+        self.confirm()
+        block7 = self.generate(node0, 1)[0]
+        assert_equal([d["vin"][0]["txid"] for d in self.deposits_in(node0, block7)], [txid7])
+        self.ecx_reorg(parent7, [self.ecx.getrawtransaction(txid7)])
+        self.sync_parent_chain()
+        for node in self.nodes:
+            assert_equal(node.getbestblockhash(), block7)
+        assert_equal(node0.getreceivedbyaddress(addr7), Decimal("0.07"))
+
+        self.log.info("A parent chain reorg that drops a deposit invalidates the block that credited it")
+        addr8 = node0.getnewaddress()
+        txid8 = self.deposit(addr8, Decimal("0.08"))
+        parent8 = self.ecx_mine()
+        self.confirm()
+        block8 = self.generate(node0, 1)[0]
+        assert_equal([d["vin"][0]["txid"] for d in self.deposits_in(node0, block8)], [txid8])
+        after8 = self.generate(node0, 1)[0]
+        new_branch = self.ecx_reorg(parent8, [])
+        self.sync_parent_chain()
+        for node in self.nodes:
+            self.wait_until(lambda: node.getbestblockhash() == block7)
+            assert_equal(self.status(node, after8), "invalid")
+        assert_equal(node0.getreceivedbyaddress(addr8), 0)
+        # New blocks don't credit it
+        replacement = self.generate(node0, 1)[0]
+        assert_equal(self.deposits_in(node0, replacement), [])
+        # The reason the block is invalid survives a restart
+        self.restart_node(1, extra_args=self.extra_args[1])
+        self.connect_nodes(0, 1)
+        assert_equal(self.status(node1, after8), "invalid")
+
+        self.log.info("When the parent chain has the deposit again, the block is valid again")
+        self.ecx.invalidateblock(new_branch)
+        self.ecx.reconsiderblock(parent8)
+        self.wait_for_enforcer()
+        self.sync_parent_chain()
+        for node in self.nodes:
+            # block8's branch has more work than the replacement: back to it
+            self.wait_until(lambda: node.getbestblockhash() == after8)
+        assert_equal(node0.getreceivedbyaddress(addr8), Decimal("0.08"))
 
         self.log.info("Both nodes end with the same UTXO set, which node1's coinstatsindex tracked")
         assert_equal(node0.gettxoutsetinfo()["hash_serialized_3"], node1.gettxoutsetinfo()["hash_serialized_3"])

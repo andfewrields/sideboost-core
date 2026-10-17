@@ -195,6 +195,7 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   deploymentstatus.cpp
   drivechain/deposit.cpp
   drivechain/enforcer.cpp
+  drivechain/parentchain.cpp
   flatfile.cpp
   headerssync.cpp
   httprpc.cpp

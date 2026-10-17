@@ -15,6 +15,7 @@
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
 #include <drivechain/deposit.h>
+#include <drivechain/parentchain.h>
 #include <interfaces/types.h>
 #include <node/blockstorage.h>
 #include <node/kernel_notifications.h>
@@ -267,17 +268,16 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
 void BlockAssembler::addDeposits()
 {
     const Consensus::Params& consensus{chainparams.GetConsensus()};
-    drivechain::DepositSource* const source{m_chainstate.m_chainman.m_options.deposit_source};
-    if (!consensus.deposit_slot || !source) return;
+    drivechain::ParentChainView* const parent{m_chainstate.m_chainman.m_options.parent_chain};
+    if (!consensus.deposit_slot || !parent) return;
 
-    const drivechain::DepositState state{drivechain::ReadDepositState(m_chainstate.CoinsTip())};
-    std::vector<drivechain::Deposit> deposits;
     try {
-        deposits = source->GetNewDeposits(*consensus.deposit_slot, state.next_sequence, state.last_block, consensus.nDepositMinDepth);
+        parent->Update();
     } catch (const drivechain::DepositSourceError& e) {
         LogWarning("Building a block without deposits: %s", e.what());
         return;
     }
+    const std::vector<drivechain::Deposit> deposits{parent->ConfirmedDeposits(drivechain::ReadDepositState(m_chainstate.CoinsTip()).next_sequence)};
     // In order, as many as fit
     for (const drivechain::Deposit& deposit : deposits) {
         CTransactionRef tx{drivechain::MakeDepositTransaction(deposit)};

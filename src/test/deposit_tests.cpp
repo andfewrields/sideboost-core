@@ -4,6 +4,7 @@
 
 #include <coins.h>
 #include <drivechain/deposit.h>
+#include <drivechain/parentchain.h>
 #include <key.h>
 #include <key_io.h>
 #include <script/interpreter.h>
@@ -21,7 +22,6 @@ static Deposit RandomDeposit(FastRandomContext& rng, uint64_t sequence, const st
 {
     return Deposit{
         .sequence = sequence,
-        .block_hash = rng.rand256(),
         .outpoint = COutPoint{Txid::FromUint256(rng.rand256()), static_cast<uint32_t>(rng.randbits<16>())},
         .address = {address.begin(), address.end()},
         .value = static_cast<CAmount>(rng.randrange(MAX_MONEY)) + 1,
@@ -42,10 +42,7 @@ BOOST_AUTO_TEST_CASE(deposit_transaction)
     BOOST_CHECK_EQUAL(tx->vout[0].nValue, deposit.value);
     BOOST_CHECK(tx->vout[0].scriptPubKey == GetScriptForDestination(dest));
 
-    const auto claim{ParseDepositTransaction(*tx)};
-    BOOST_REQUIRE(claim);
-    BOOST_CHECK(claim->block_hash == deposit.block_hash);
-    BOOST_CHECK_EQUAL(claim->sequence, deposit.sequence);
+    BOOST_CHECK_EQUAL(ParseDepositTransaction(*tx).value_or(0), deposit.sequence);
 
     // An address that doesn't decode burns the deposit
     const CTransactionRef burn{MakeDepositTransaction(RandomDeposit(m_rng, 0, "not-an-address"))};
@@ -53,7 +50,7 @@ BOOST_AUTO_TEST_CASE(deposit_transaction)
 
     // Malformed claims
     CMutableTransaction bad{*tx};
-    bad.vin[0].scriptSig = CScript() << OP_RETURN << ToByteVector(deposit.block_hash);
+    bad.vin[0].scriptSig = CScript() << OP_RETURN << std::vector<unsigned char>(7);
     BOOST_CHECK(CTransaction{bad}.IsDeposit());
     BOOST_CHECK(!ParseDepositTransaction(CTransaction{bad}));
     bad.vin[0].scriptSig = tx->vin[0].scriptSig;
@@ -70,12 +67,11 @@ BOOST_AUTO_TEST_CASE(deposit_transaction)
 
 BOOST_AUTO_TEST_CASE(deposit_state)
 {
-    const DepositState state{42, m_rng.rand256()};
+    const DepositState state{42};
     const Coin coin{MakeDepositStateCoin(state, 100)};
     const auto parsed{ParseDepositStateCoin(coin)};
     BOOST_REQUIRE(parsed);
     BOOST_CHECK_EQUAL(parsed->next_sequence, state.next_sequence);
-    BOOST_CHECK(parsed->last_block == state.last_block);
     BOOST_CHECK(!coin.out.scriptPubKey.IsUnspendable()); // kept in the UTXO set
 
     // No scriptSig can spend it
@@ -98,7 +94,6 @@ BOOST_AUTO_TEST_CASE(deposit_coins)
         UpdateCoinsForDeposit(*txs.back(), view, undos[sequence], /*height=*/10 + sequence);
         const DepositState state{ReadDepositState(view)};
         BOOST_CHECK_EQUAL(state.next_sequence, sequence + 1);
-        BOOST_CHECK(state.last_block == ParseDepositTransaction(*txs.back())->block_hash);
     }
     BOOST_CHECK(UndoDepositState(std::move(undos[1].vprevout[0]), view));
     BOOST_CHECK_EQUAL(ReadDepositState(view).next_sequence, 1U);
@@ -108,6 +103,122 @@ BOOST_AUTO_TEST_CASE(deposit_coins)
 
     // Nothing to undo
     BOOST_CHECK(!UndoDepositState(MakeDepositStateCoin({}, 1), view));
+}
+
+namespace {
+
+/** A parent chain in memory: blocks with treasury events, and a best tip.  */
+class FakeParentChain final : public DepositSource
+{
+public:
+    struct Block {
+        ParentHeader header;
+        std::vector<TreasuryEvent> events;
+    };
+    std::map<uint256, Block> blocks;
+    uint256 tip;
+    FastRandomContext& rng;
+
+    explicit FakeParentChain(FastRandomContext& rng_in) : rng{rng_in}
+    {
+        const uint256 genesis{rng.rand256()};
+        blocks[genesis] = {{genesis, uint256{}, 0}, {}};
+        tip = genesis;
+    }
+
+    /** Mine a block on `prev` (default: the tip) and make it the tip.  */
+    uint256 Mine(std::vector<TreasuryEvent> events = {}, std::optional<uint256> prev = {})
+    {
+        const ParentHeader& parent{blocks.at(prev.value_or(tip)).header};
+        const uint256 hash{rng.rand256()};
+        for (TreasuryEvent& event : events) {
+            event.block_hash = hash;
+            event.height = parent.height + 1;
+        }
+        blocks[hash] = {{hash, parent.hash, parent.height + 1}, std::move(events)};
+        tip = hash;
+        return hash;
+    }
+
+    ParentHeader GetTip() override { return blocks.at(tip).header; }
+
+    std::vector<ParentHeader> GetHeaders(const uint256& hash, uint32_t max_ancestors) override
+    {
+        std::vector<ParentHeader> res;
+        for (auto it{blocks.find(hash)}; it != blocks.end() && res.size() <= max_ancestors; it = blocks.find(it->second.header.prev)) {
+            res.push_back(it->second.header);
+        }
+        return res;
+    }
+
+    std::vector<TreasuryEvent> GetTreasuryEvents(uint8_t, const std::optional<uint256>& start, const uint256& end) override
+    {
+        std::vector<TreasuryEvent> res;
+        for (auto it{blocks.find(end)}; it != blocks.end() && it->first != start; it = blocks.find(it->second.header.prev)) {
+            res.insert(res.end(), it->second.events.begin(), it->second.events.end());
+        }
+        return res;
+    }
+};
+
+TreasuryEvent DepositEvent(const Deposit& deposit) { return {deposit.sequence, {}, 0, deposit}; }
+TreasuryEvent WithdrawalEvent(uint64_t sequence) { return {sequence, {}, 0, std::nullopt}; }
+
+} // namespace
+
+BOOST_AUTO_TEST_CASE(parent_chain_view)
+{
+    FakeParentChain parent{m_rng};
+    ParentChainView view{parent, /*slot=*/83, /*min_depth=*/3};
+
+    const Deposit d0{RandomDeposit(m_rng, 0, "a")}, d2{RandomDeposit(m_rng, 2, "b")};
+    parent.Mine({DepositEvent(d0), WithdrawalEvent(1)});
+    const uint256 block2{parent.Mine({DepositEvent(d2)})};
+    view.Update();
+    BOOST_CHECK_EQUAL(view.TakeChanges().value_or(99), 0U); // first update: check everything
+    BOOST_CHECK(view.TakeTipChanged());
+
+    // Confirmations: d0 has 1 block on top, d2 none
+    BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(d0)) == DepositStatus::TOO_SHALLOW);
+    BOOST_CHECK(view.ConfirmedDeposits(0).empty());
+    parent.Mine();
+    parent.Mine();
+    view.Update();
+    BOOST_CHECK(!view.TakeChanges());
+    BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(d0)) == DepositStatus::OK);
+    BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(d2)) == DepositStatus::TOO_SHALLOW);
+    BOOST_CHECK(view.ConfirmedDeposits(0) == std::vector{d0});
+    parent.Mine();
+    view.Update();
+    // The withdrawal's number is skipped
+    BOOST_CHECK(view.ConfirmedDeposits(0) == (std::vector{d0, d2}));
+    BOOST_CHECK(view.ConfirmedDeposits(1) == std::vector{d2});
+    BOOST_CHECK_EQUAL(view.NextDeposit(1)->first.sequence, 2U);
+    BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(RandomDeposit(m_rng, 1, "c"))) == DepositStatus::MISMATCH);
+    BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(RandomDeposit(m_rng, 2, "c"))) == DepositStatus::MISMATCH);
+    BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(RandomDeposit(m_rng, 3, "c"))) == DepositStatus::UNKNOWN);
+
+    // A reorg that mines d2 again elsewhere changes nothing
+    const uint256 fork{parent.blocks.at(block2).header.prev};
+    parent.Mine({DepositEvent(d2)}, fork);
+    for (int i = 0; i < 4; ++i) parent.Mine();
+    view.Update();
+    BOOST_CHECK(!view.TakeChanges());
+    BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(d2)) == DepositStatus::OK);
+
+    // A reorg without d2 changes it, and so does one with another deposit 2
+    parent.tip = fork;
+    for (int i = 0; i < 6; ++i) parent.Mine();
+    view.Update();
+    BOOST_CHECK_EQUAL(view.TakeChanges().value_or(99), 2U);
+    BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(d2)) == DepositStatus::UNKNOWN);
+    const Deposit other2{RandomDeposit(m_rng, 2, "d")};
+    parent.Mine({DepositEvent(other2)}, fork);
+    for (int i = 0; i < 9; ++i) parent.Mine();
+    view.Update();
+    BOOST_CHECK(!view.TakeChanges()); // nothing it had before is gone
+    BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(d2)) == DepositStatus::MISMATCH);
+    BOOST_CHECK(view.ConfirmedDeposits(2) == std::vector{other2});
 }
 
 BOOST_AUTO_TEST_SUITE_END()

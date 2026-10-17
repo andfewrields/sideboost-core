@@ -130,6 +130,9 @@ static void SetSideBoostConsensus(Consensus::Params& consensus)
        rounded to the nearest multiple of WITNESS_SCALE_FACTOR.  */
     consensus.nMaxBlockWeight = 66'668;
     consensus.nMaxBlockSigOpsCost = 1'332;
+    /* A deposit is credited once 3 ECX blocks (~30 min) are on top of its
+       block, which makes undoing it through an ECX reorg rare.  */
+    consensus.nDepositMinDepth = 3;
     /* All buried deployments active from the start.  BIP34/65/66/CSV
        start at height 1 since the genesis block cannot satisfy them.  */
     consensus.BIP16Height = 0;

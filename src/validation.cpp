@@ -19,6 +19,7 @@
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
 #include <drivechain/deposit.h>
+#include <drivechain/parentchain.h>
 #include <cuckoocache.h>
 #include <flatfile.h>
 #include <hash.h>
@@ -2378,59 +2379,55 @@ script_verify_flags GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
 
 /** Check a block's deposits (BIP300 M5, see drivechain/deposit.h) against the
  *  node's view of the parent chain.  A view that can't tell yet (unreachable,
- *  behind) is an error, not a verdict on the block.  */
-static bool CheckDeposits(const CBlock& block, const CCoinsViewCache& view, const Consensus::Params& params,
-                          drivechain::DepositSource* source, BlockValidationState& state)
+ *  behind, too few confirmations) is an error, not a verdict on the block.
+ *  `parent_dependent` tells whether a failure is down to the view, which a
+ *  parent chain reorg can change.  */
+static bool CheckDeposits(const CBlock& block, const CCoinsViewCache& view, drivechain::ParentChainView* parent,
+                          BlockValidationState& state, bool& parent_dependent)
 {
-    using drivechain::BlockDeposits;
-    using drivechain::Deposit;
+    using drivechain::DepositStatus;
     if (block.vtx.size() < 2 || !block.vtx[1]->IsDeposit()) return true;
-    if (!source) return state.Error("deposits can't be checked without a view of the parent chain (-enforcer)");
+    if (!parent) return state.Error("deposits can't be checked without a view of the parent chain (-enforcer)");
+    try {
+        parent->Update();
+    } catch (const drivechain::DepositSourceError& e) {
+        return state.Error(strprintf("can't check deposits: %s", e.what()));
+    }
 
     uint64_t next{drivechain::ReadDepositState(view).next_sequence};
-    std::map<uint256, std::vector<Deposit>> parent_blocks;
-    for (size_t i = 1; i < block.vtx.size() && block.vtx[i]->IsDeposit(); ++i, ++next) {
+    for (size_t i = 1; i < block.vtx.size() && block.vtx[i]->IsDeposit(); ++i) {
         const CTransaction& tx{*block.vtx[i]};
-        const auto claim{drivechain::ParseDepositTransaction(tx)};
-        if (!claim) {
+        const auto sequence{drivechain::ParseDepositTransaction(tx)};
+        if (!sequence) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-format",
                                  strprintf("malformed deposit %s", tx.GetHash().ToString()));
         }
-        if (claim->sequence != next) {
+        if (*sequence < next) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-sequence",
-                                 strprintf("deposit %s is number %d, expected %d", tx.GetHash().ToString(), claim->sequence, next));
+                                 strprintf("deposit %s is number %d, but %d is the lowest not yet credited", tx.GetHash().ToString(), *sequence, next));
         }
-        auto it{parent_blocks.find(claim->block_hash)};
-        if (it == parent_blocks.end()) {
-            BlockDeposits found;
-            try {
-                found = source->GetBlockDeposits(*params.deposit_slot, claim->block_hash, params.nDepositMinDepth);
-            } catch (const drivechain::DepositSourceError& e) {
-                return state.Error(strprintf("can't check deposits: %s", e.what()));
+        // No deposit may be skipped
+        if (const auto skipped{parent->NextDeposit(next)}; skipped && skipped->first.sequence < *sequence) {
+            if (!skipped->second) {
+                return state.Error(strprintf("deposit %d is not confirmed yet in our view of the parent chain", skipped->first.sequence));
             }
-            switch (found.status) {
-            case BlockDeposits::Status::OK:
-                break;
-            case BlockDeposits::Status::UNKNOWN:
-            case BlockDeposits::Status::TOO_SHALLOW:
-                return state.Error(strprintf("deposit %s is from parent block %s, not (yet) deep enough in our view of the parent chain",
-                                             tx.GetHash().ToString(), claim->block_hash.ToString()));
-            case BlockDeposits::Status::NOT_IN_BEST_CHAIN:
-                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-block",
-                                     strprintf("deposit %s is from parent block %s, which is not on the parent's best chain",
-                                               tx.GetHash().ToString(), claim->block_hash.ToString()));
-            }
-            it = parent_blocks.emplace(claim->block_hash, std::move(found.deposits)).first;
+            parent_dependent = true;
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-skipped",
+                                 strprintf("deposit %s is number %d, but skips deposit %d", tx.GetHash().ToString(), *sequence, skipped->first.sequence));
         }
-        const auto deposit{std::ranges::find(it->second, claim->sequence, &Deposit::sequence)};
-        if (deposit == it->second.end()) {
-            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-unknown",
-                                 strprintf("parent block %s has no deposit number %d", claim->block_hash.ToString(), claim->sequence));
-        }
-        if (drivechain::MakeDepositTransaction(*deposit)->GetWitnessHash() != tx.GetWitnessHash()) {
+        switch (parent->CheckDeposit(tx)) {
+        case DepositStatus::OK:
+            break;
+        case DepositStatus::UNKNOWN:
+        case DepositStatus::TOO_SHALLOW:
+            return state.Error(strprintf("deposit %s (number %d) is not (yet) confirmed in our view of the parent chain",
+                                         tx.GetHash().ToString(), *sequence));
+        case DepositStatus::MISMATCH:
+            parent_dependent = true;
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-mismatch",
-                                 strprintf("deposit %s does not match deposit number %d", tx.GetHash().ToString(), claim->sequence));
+                                 strprintf("deposit %s does not match the parent chain's number %d", tx.GetHash().ToString(), *sequence));
         }
+        next = *sequence + 1;
     }
     return true;
 }
@@ -2649,7 +2646,9 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         m_last_script_check_reason_logged = script_check_reason;
     }
 
-    if (!CheckDeposits(block, view, params.GetConsensus(), m_chainman.m_options.deposit_source, state)) {
+    if (bool parent_dependent{false}; !CheckDeposits(block, view, m_chainman.m_options.parent_chain, state, parent_dependent)) {
+        // Checked again when the parent chain changes
+        if (parent_dependent && !fJustCheck) SetParentChainFailure(*pindex, true);
         LogInfo("Block validation error: %s", state.ToString());
         return false;
     }
@@ -3892,6 +3891,17 @@ void Chainstate::ResetBlockFailureFlags(CBlockIndex *pindex) {
             }
         }
     }
+}
+
+void Chainstate::SetParentChainFailure(CBlockIndex& index, bool failed)
+{
+    AssertLockHeld(cs_main);
+    if (failed) {
+        index.nStatus |= BLOCK_FAILED_PARENT_CHAIN;
+    } else {
+        index.nStatus &= ~BLOCK_FAILED_PARENT_CHAIN;
+    }
+    m_blockman.m_dirty_blockindex.insert(&index);
 }
 
 void Chainstate::TryAddBlockIndexCandidate(CBlockIndex* pindex)

@@ -38,23 +38,22 @@ CTransactionRef MakeDepositTransaction(const Deposit& deposit)
     CMutableTransaction tx;
     tx.version = 2;
     tx.nLockTime = 0;
-    tx.vin.emplace_back(deposit.outpoint, CScript() << OP_RETURN << ToByteVector(deposit.block_hash) << EncodeSequence(deposit.sequence));
+    tx.vin.emplace_back(deposit.outpoint, CScript() << OP_RETURN << EncodeSequence(deposit.sequence));
     tx.vout.emplace_back(deposit.value, DepositPayoutScript(deposit.address));
     return MakeTransactionRef(std::move(tx));
 }
 
-std::optional<DepositClaim> ParseDepositTransaction(const CTransaction& tx)
+std::optional<uint64_t> ParseDepositTransaction(const CTransaction& tx)
 {
     if (!tx.IsDeposit()) return std::nullopt;
     const CScript& script{tx.vin[0].scriptSig};
     CScript::const_iterator pc{script.begin()};
     opcodetype op;
-    std::vector<unsigned char> hash, sequence;
+    std::vector<unsigned char> sequence;
     if (!script.GetOp(pc, op) || op != OP_RETURN) return std::nullopt;
-    if (!script.GetOp(pc, op, hash) || hash.size() != uint256::size()) return std::nullopt;
     if (!script.GetOp(pc, op, sequence) || sequence.size() != 8) return std::nullopt;
     if (pc != script.end()) return std::nullopt;
-    return DepositClaim{uint256{hash}, ReadLE64(sequence.data())};
+    return ReadLE64(sequence.data());
 }
 
 const COutPoint& DepositStateOutpoint()
@@ -67,7 +66,7 @@ const COutPoint& DepositStateOutpoint()
 Coin MakeDepositStateCoin(const DepositState& state, int height)
 {
     // Pushes the state, drops it and leaves false: no spend can succeed.
-    CScript script{CScript() << EncodeSequence(state.next_sequence) << ToByteVector(state.last_block) << OP_2DROP << OP_FALSE};
+    CScript script{CScript() << EncodeSequence(state.next_sequence) << OP_DROP << OP_FALSE};
     return Coin{CTxOut{0, std::move(script)}, height, /*fCoinBaseIn=*/false};
 }
 
@@ -76,14 +75,13 @@ std::optional<DepositState> ParseDepositStateCoin(const Coin& coin)
     const CScript& script{coin.out.scriptPubKey};
     CScript::const_iterator pc{script.begin()};
     opcodetype op;
-    std::vector<unsigned char> sequence, hash;
+    std::vector<unsigned char> sequence;
     if (coin.IsSpent() || coin.out.nValue != 0) return std::nullopt;
     if (!script.GetOp(pc, op, sequence) || sequence.size() != 8) return std::nullopt;
-    if (!script.GetOp(pc, op, hash) || hash.size() != uint256::size()) return std::nullopt;
-    if (!script.GetOp(pc, op) || op != OP_2DROP) return std::nullopt;
+    if (!script.GetOp(pc, op) || op != OP_DROP) return std::nullopt;
     if (!script.GetOp(pc, op) || op != OP_FALSE) return std::nullopt;
     if (pc != script.end()) return std::nullopt;
-    return DepositState{ReadLE64(sequence.data()), uint256{hash}};
+    return DepositState{ReadLE64(sequence.data())};
 }
 
 DepositState ReadDepositState(const CCoinsViewCache& view)
@@ -100,14 +98,13 @@ void UpdateCoinsForDeposit(const CTransaction& tx, CCoinsViewCache& view, CTxUnd
     if (!view.SpendCoin(DepositStateOutpoint(), &txundo.vprevout.back())) {
         txundo.vprevout.back() = MakeDepositStateCoin({}, height);
     }
-    view.AddCoin(DepositStateOutpoint(), DepositStateCoinAfter(tx, txundo.vprevout.back(), height), /*possible_overwrite=*/false);
+    view.AddCoin(DepositStateOutpoint(), DepositStateCoinAfter(tx, height), /*possible_overwrite=*/false);
     AddCoins(view, tx, height);
 }
 
-Coin DepositStateCoinAfter(const CTransaction& tx, const Coin& undo, int height)
+Coin DepositStateCoinAfter(const CTransaction& tx, int height)
 {
-    const DepositState previous{*Assert(ParseDepositStateCoin(undo))};
-    return MakeDepositStateCoin({previous.next_sequence + 1, Assert(ParseDepositTransaction(tx))->block_hash}, height);
+    return MakeDepositStateCoin({*Assert(ParseDepositTransaction(tx)) + 1}, height);
 }
 
 bool UndoDepositState(Coin&& undo, CCoinsViewCache& view)

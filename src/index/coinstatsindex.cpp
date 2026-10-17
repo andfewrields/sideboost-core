@@ -170,7 +170,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                     --m_transaction_output_count;
                     m_bogo_size -= GetBogoSize(before.out.scriptPubKey);
                 }
-                const Coin after{drivechain::DepositStateCoinAfter(*tx, before, block.height)};
+                const Coin after{drivechain::DepositStateCoinAfter(*tx, block.height)};
                 ApplyCoinHash(m_muhash, drivechain::DepositStateOutpoint(), after);
                 ++m_transaction_output_count;
                 m_bogo_size += GetBogoSize(after.out.scriptPubKey);
@@ -395,7 +395,7 @@ bool CoinStatsIndex::RevertBlock(const interfaces::BlockInfo& block)
 
         if (tx->IsDeposit()) {
             const Coin& before{block.undo_data->vtxundo.at(i - 1).vprevout.at(0)};
-            RemoveCoinHash(m_muhash, drivechain::DepositStateOutpoint(), drivechain::DepositStateCoinAfter(*tx, before, block.height));
+            RemoveCoinHash(m_muhash, drivechain::DepositStateOutpoint(), drivechain::DepositStateCoinAfter(*tx, block.height));
             if (!Assert(drivechain::ParseDepositStateCoin(before))->IsInitial()) {
                 ApplyCoinHash(m_muhash, drivechain::DepositStateOutpoint(), before);
             }

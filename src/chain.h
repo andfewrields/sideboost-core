@@ -89,6 +89,11 @@ enum BlockStatus : uint32_t {
 
     BLOCK_STATUS_RESERVED    =   256, //!< Unused flag that was previously set on assumeutxo snapshot blocks and their
                                       //!< ancestors before they were validated, and unset when they were validated.
+
+    //! Set (with BLOCK_FAILED_VALID) on a block found invalid because of the
+    //! node's view of the parent chain (its deposits): checked again when that
+    //! view changes, and made valid again if it now agrees.
+    BLOCK_FAILED_PARENT_CHAIN =  512,
 };
 
 /** The block chain is a tree shaped structure starting with the
