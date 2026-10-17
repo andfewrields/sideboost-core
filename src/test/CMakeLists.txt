@@ -43,6 +43,7 @@ add_executable(test_namecoin
   cuckoocache_tests.cpp
   dbwrapper_tests.cpp
   denialofservice_tests.cpp
+  deposit_tests.cpp
   disconnected_transactions.cpp
   fees_util_tests.cpp
   feefrac_tests.cpp
