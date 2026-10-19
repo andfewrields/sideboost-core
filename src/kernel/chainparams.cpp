@@ -316,6 +316,9 @@ public:
         m_chain_type = ChainType::TESTNET4;
         SetSideBoostConsensus(consensus);
         ApplyDeploymentOptions(opts.dep_opts);
+        /* Deposits from ECX testnet4's slot 83 (0x53, "S"), the slot meant
+           for mainnet too.  */
+        consensus.deposit_slot = 83;
 
         pchMessageStart[0] = 0xfd;
         pchMessageStart[1] = 0xc2;

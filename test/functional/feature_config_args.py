@@ -505,7 +505,9 @@ class ConfArgsTest(BitcoinTestFramework):
         self.log.info("Test -acceptstalefeeestimates option support")
         conf_file = self.nodes[0].datadir_path / "namecoin.conf"
         for chain, chain_name in {("main", ""), ("test", "testnet3"), ("signet", "signet"), ("testnet4", "testnet4")}:
-            util.write_config(conf_file, n=0, chain=chain_name, extra_config='acceptstalefeeestimates=1\n')
+            # testnet4 takes deposits, so it needs an enforcer
+            extra_config = 'acceptstalefeeestimates=1\n' + ('enforcer=127.0.0.1:1\n' if chain == "testnet4" else '')
+            util.write_config(conf_file, n=0, chain=chain_name, extra_config=extra_config)
             self.nodes[0].assert_start_raises_init_error(expected_msg=f'Error: acceptstalefeeestimates is not supported on {chain} chain.')
         util.write_config(conf_file, n=0, chain="regtest")  # Reset to regtest
 
@@ -524,7 +526,7 @@ class ConfArgsTest(BitcoinTestFramework):
         self.nodes[0].chain = 'testnet4'
         self.nodes[0].replace_in_config([('testnet=', 'testnet4='), ('[test]', '[testnet4]')])
         with self.nodes[0].assert_debug_log([], unexpected_msgs=[t3_warning_log]):
-            self.start_node(0)
+            self.start_node(0, extra_args=["-enforcer=127.0.0.1:1"])  # testnet4 takes deposits
         # Some CI environments will have limited space and some others won't
         # so we need to handle both cases as a valid result.
         self.nodes[0].stderr.seek(0)
