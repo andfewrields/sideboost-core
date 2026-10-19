@@ -15,6 +15,7 @@ import math
 from decimal import Decimal
 
 from test_framework.blocktools import (
+    MAX_FUTURE_BLOCK_TIME,
     create_block,
     create_coinbase,
     get_witness_script,
@@ -55,7 +56,6 @@ from test_framework.wallet import (
 
 
 DIFFICULTY_ADJUSTMENT_INTERVAL = 500  # SideBoost: 500-block retarget window
-MAX_FUTURE_BLOCK_TIME = 5 * 60  # SideBoost: consensus nMaxFutureBlockTime
 MAX_TIMEWARP = 600
 VERSIONBITS_TOP_BITS = 0x20000000
 VERSIONBITS_DEPLOYMENT_TESTDUMMY_BIT = 28

@@ -11,6 +11,7 @@ import time
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_not_equal
 from test_framework.messages import (
+    BLOCK_SPACING,
     NODE_NETWORK,
     NODE_NETWORK_LIMITED,
     NODE_NONE,
@@ -88,10 +89,10 @@ class P2PHandshakeTest(BitcoinTestFramework):
                                           DESIRABLE_SERVICE_FLAGS_FULL, expect_disconnect=False)
 
         self.log.info("Check that limited peers are only desired if the local chain is close to the tip (<144 blocks)")
-        self.generate_at_mocktime(int(time.time()) - 25 * 60)  # tip outside the 144-block (24 min) window, should fail
+        self.generate_at_mocktime(int(time.time()) - 144 * BLOCK_SPACING - 60)  # tip outside the 144-block window (24 min at 10 s), should fail
         self.test_desirable_service_flags(node, [NODE_NETWORK_LIMITED | NODE_WITNESS],
                                           DESIRABLE_SERVICE_FLAGS_FULL, expect_disconnect=True)
-        self.generate_at_mocktime(int(time.time()) - 23 * 60)  # tip inside the 144-block (24 min) window, should succeed
+        self.generate_at_mocktime(int(time.time()) - 144 * BLOCK_SPACING + 60)  # tip inside the 144-block window, should succeed
         self.test_desirable_service_flags(node, [NODE_NETWORK_LIMITED | NODE_WITNESS],
                                           DESIRABLE_SERVICE_FLAGS_PRUNED, expect_disconnect=False)
 

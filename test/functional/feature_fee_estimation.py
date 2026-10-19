@@ -36,6 +36,9 @@ SECONDS_PER_HOUR = 60 * 60
 MIN_BUCKET_FEERATE = Decimal(1000) / Decimal(COIN)
 TXS_COUNT = 24
 MEMPOOL_HEALTH_WINDOW = 6
+# SideBoost: Bitcoin's test mines blocks of up to 72000 WU, which may exceed
+# the whole block; block sizes and the transaction rate are then scaled down.
+BLOCK_SCALE = min(1, MAX_BLOCK_WEIGHT / 72000)
 BLOCK_POLICY_ESTIMATOR_ERROR = "Insufficient data or no feerate found"
 BLOCK_POLICY_ESTIMATOR_FILE_PATH = "fees/block_policy_estimates.dat"
 
@@ -166,12 +169,10 @@ class EstimateFeeTest(BitcoinTestFramework):
         self.num_nodes = 3
         # whitelist peers to speed up tx relay / mempool sync
         self.noban_tx_relay = True
-        # SideBoost: 72000 exceeds the whole block (66668), so block sizes and
-        # the transaction rate below are scaled by 66668/72000.
         self.extra_args = [
             [],
-            ["-blockmaxweight=66668"],
-            ["-blockmaxweight=33334"],
+            [f"-blockmaxweight={round(72000 * BLOCK_SCALE)}"],
+            [f"-blockmaxweight={round(36000 * BLOCK_SCALE)}"],
         ]
 
     def setup_network(self):
@@ -207,7 +208,7 @@ class EstimateFeeTest(BitcoinTestFramework):
         for _ in range(numblocks):
             random.shuffle(self.confutxo)
             batch_sendtx_reqs = []
-            for _ in range(random.randrange(93 - 46, 93 + 46)):
+            for _ in range(random.randrange(round(100 * BLOCK_SCALE) - round(50 * BLOCK_SCALE), round(100 * BLOCK_SCALE) + round(50 * BLOCK_SCALE))):
                 from_index = random.randint(1, 2)
                 (tx_bytes, fee) = small_txpuzzle_randfee(
                     self.wallet,

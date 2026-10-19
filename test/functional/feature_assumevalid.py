@@ -41,6 +41,7 @@ from test_framework.blocktools import (
     create_coinbase,
 )
 from test_framework.messages import (
+    BLOCK_SPACING,
     CBlockHeader,
     COutPoint,
     CTransaction,
@@ -135,7 +136,7 @@ class AssumeValidTest(BitcoinTestFramework):
         # SideBoost: assumevalid needs two weeks' worth of work built on top
         # (~121,000 blocks at 10 s), so lower the burial to 2016 blocks' worth;
         # the 2100 blocks above exceed it, as they exceed two weeks on Bitcoin.
-        burial = f"-assumevalidburial={2016 * 10}"
+        burial = f"-assumevalidburial={2016 * BLOCK_SPACING}"
         self.start_node(1, extra_args=[f"-assumevalid={block102.hash_hex}", burial])
         self.start_node(2, extra_args=[f"-assumevalid={block102.hash_hex}", burial])
         self.start_node(3, extra_args=[f"-assumevalid={block102.hash_hex}", burial])

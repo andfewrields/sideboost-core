@@ -5,8 +5,10 @@
 
 #include <kernel/chainparams.h>
 
+#include <chain.h>
 #include <chainparamsseeds.h>
 #include <consensus/amount.h>
+#include <consensus/consensus.h>
 #include <consensus/merkle.h>
 #include <consensus/params.h>
 #include <crypto/hex_base.h>
@@ -113,6 +115,48 @@ void CChainParams::ApplyDeploymentOptions(const DeploymentOptions& opts)
 }
 
 /**
+ * SideBoost's target block interval, in seconds.  The consensus values that
+ * depend on it are derived from it below, so changing it rescales them all;
+ * a different interval is a different chain, though (genesis, test
+ * networks, and the functional tests' BLOCK_SPACING).  See PLAN.md.
+ */
+static constexpr int64_t SIDEBOOST_BLOCK_SPACING{10};
+/** Bitcoin's block interval, the base for the scaled values below. */
+static constexpr int64_t BITCOIN_BLOCK_SPACING{10 * 60};
+/** Blocks per difficulty window.  A number of blocks (the DAA's sample
+    size), not a time: the window lasts this many block intervals.  */
+static constexpr int64_t SIDEBOOST_DIFFICULTY_WINDOW{500};
+
+/** A Bitcoin per-block limit scaled to a block interval, in proportion,
+    rounded to the nearest multiple of WITNESS_SCALE_FACTOR, and never above
+    Bitcoin's (the global constants size buffers and DoS limits).  */
+static constexpr int64_t ScaleBlockLimit(int64_t bitcoin_limit, int64_t spacing)
+{
+    const int64_t unit{BITCOIN_BLOCK_SPACING * WITNESS_SCALE_FACTOR};
+    const int64_t scaled{(2 * bitcoin_limit * spacing + unit) / (2 * unit) * WITNESS_SCALE_FACTOR};
+    return std::min(bitcoin_limit, scaled);
+}
+/** Coinbase maturity: a quarter of Bitcoin's time (100 blocks).  */
+static constexpr int CoinbaseMaturity(int64_t spacing)
+{
+    return static_cast<int>(COINBASE_MATURITY * BITCOIN_BLOCK_SPACING / spacing / 4);
+}
+/** Max future block time: 30 block intervals, so a window's apparent
+    duration can't be materially stretched (6% of a 500-block window), and
+    at most Bitcoin's 2 hours.  */
+static constexpr int64_t MaxFutureBlockTime(int64_t spacing)
+{
+    return std::min(MAX_FUTURE_BLOCK_TIME, 30 * spacing);
+}
+static_assert(ScaleBlockLimit(MAX_BLOCK_WEIGHT, 10) == 66'668);
+static_assert(ScaleBlockLimit(MAX_BLOCK_SIGOPS_COST, 10) == 1'332);
+static_assert(ScaleBlockLimit(MAX_BLOCK_WEIGHT, BITCOIN_BLOCK_SPACING) == int64_t{MAX_BLOCK_WEIGHT});
+static_assert(CoinbaseMaturity(10) == 1'500);
+static_assert(MaxFutureBlockTime(10) == 5 * 60);
+static_assert(MaxFutureBlockTime(BITCOIN_BLOCK_SPACING) == MAX_FUTURE_BLOCK_TIME);
+static_assert(MaxFutureBlockTime(SIDEBOOST_BLOCK_SPACING) < SIDEBOOST_DIFFICULTY_WINDOW * SIDEBOOST_BLOCK_SPACING);
+
+/**
  * Consensus rules shared by all SideBoost networks.  Mainnet uses them as is;
  * the test networks start from them and override only what testing needs, so
  * that they exercise the same rules as mainnet.  See PLAN.md for the rationale.
@@ -123,13 +167,12 @@ static void SetSideBoostConsensus(Consensus::Params& consensus)
     consensus.signet_challenge.clear();
     consensus.nSubsidyHalvingInterval = 210000;
     consensus.nInitialSubsidy = 0;
-    /* 15x Bitcoin's 100 blocks: ~4.2 hours at 10 s, a quarter of
-       Bitcoin's ~16.7 hours.  */
-    consensus.nCoinbaseMaturity = 1'500;
-    /* 1/60 of Bitcoin's limits to match the 60x shorter block interval,
-       rounded to the nearest multiple of WITNESS_SCALE_FACTOR.  */
-    consensus.nMaxBlockWeight = 66'668;
-    consensus.nMaxBlockSigOpsCost = 1'332;
+    /* 1,500 blocks at 10 s: ~4.2 hours, a quarter of Bitcoin's ~16.7.  */
+    consensus.nCoinbaseMaturity = CoinbaseMaturity(SIDEBOOST_BLOCK_SPACING);
+    /* Bitcoin's limits scaled to the block interval (1/60 at 10 s:
+       66,668 WU and 1,332).  */
+    consensus.nMaxBlockWeight = static_cast<unsigned int>(ScaleBlockLimit(MAX_BLOCK_WEIGHT, SIDEBOOST_BLOCK_SPACING));
+    consensus.nMaxBlockSigOpsCost = ScaleBlockLimit(MAX_BLOCK_SIGOPS_COST, SIDEBOOST_BLOCK_SPACING);
     /* Deposits from ECX sidechain slot 83 (0x53, "S"), on each network
        from the ECX network of the same kind.  */
     consensus.deposit_slot = 83;
@@ -147,16 +190,14 @@ static void SetSideBoostConsensus(Consensus::Params& consensus)
     consensus.SegwitHeight = 0;
     consensus.MinBIP9WarningHeight = 0;
     consensus.powLimit = uint256{"000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
-    consensus.nPowTargetSpacing = 10;
-    consensus.nPowTargetTimespan = 500 * consensus.nPowTargetSpacing; // 500 blocks, ~83 minutes
+    consensus.nPowTargetSpacing = SIDEBOOST_BLOCK_SPACING;
+    consensus.nPowTargetTimespan = SIDEBOOST_DIFFICULTY_WINDOW * SIDEBOOST_BLOCK_SPACING; // ~83 minutes at 10 s
     /* Asymmetric retarget cap: difficulty rises at most 2x per window
        (limits how far a transient merge-miner can push it) but may fall
        up to 4x (fast recovery when hashrate leaves).  */
     consensus.nPowMaxDifficultyIncrease = 2;
     consensus.nPowMaxDifficultyDecrease = 4;
-    /* Shorter than a retarget window, so future-dated timestamps cannot
-       materially stretch a window's apparent duration.  */
-    consensus.nMaxFutureBlockTime = 5 * 60;
+    consensus.nMaxFutureBlockTime = MaxFutureBlockTime(SIDEBOOST_BLOCK_SPACING); // 5 min at 10 s
     consensus.fPowAllowMinDifficultyBlocks = false;
     consensus.nMinDifficultySince = 0;
     consensus.enforce_BIP94 = false;

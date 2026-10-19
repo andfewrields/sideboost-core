@@ -35,9 +35,6 @@ from test_framework.util import (
 )
 
 MAX_LOCATOR_SZ = 101
-# SideBoost: consensus limits (1/60 of Bitcoin's, matching the 10 s block interval)
-MAX_BLOCK_WEIGHT = 66668
-MAX_BLOCK_SIGOPS_COST = 1332
 DEFAULT_BLOCK_RESERVED_WEIGHT = 8000
 MINIMUM_BLOCK_RESERVED_WEIGHT = 2000
 MAX_BLOOM_FILTER_SIZE = 36000
@@ -74,6 +71,22 @@ MSG_WITNESS_TX = MSG_TX | MSG_WITNESS_FLAG
 FILTER_TYPE_BASIC = 0
 
 WITNESS_SCALE_FACTOR = 4
+
+# SideBoost: the target block interval in seconds (SIDEBOOST_BLOCK_SPACING in
+# src/kernel/chainparams.cpp, shared by regtest), and the consensus limits
+# derived from it there: Bitcoin's scaled to the interval (1/60 at 10 s),
+# rounded to the nearest multiple of WITNESS_SCALE_FACTOR, at most Bitcoin's.
+BLOCK_SPACING = 10
+BITCOIN_BLOCK_SPACING = 10 * 60
+
+
+def scale_block_limit(bitcoin_limit):
+    unit = BITCOIN_BLOCK_SPACING * WITNESS_SCALE_FACTOR
+    return min(bitcoin_limit, (2 * bitcoin_limit * BLOCK_SPACING + unit) // (2 * unit) * WITNESS_SCALE_FACTOR)
+
+
+MAX_BLOCK_WEIGHT = scale_block_limit(4_000_000)  # SideBoost: 66,668
+MAX_BLOCK_SIGOPS_COST = scale_block_limit(80_000)  # SideBoost: 1,332
 
 DEFAULT_ANCESTOR_LIMIT = 25    # default max number of in-mempool ancestors
 DEFAULT_DESCENDANT_LIMIT = 25  # default max number of in-mempool descendants

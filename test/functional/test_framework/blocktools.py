@@ -30,6 +30,10 @@ from .messages import (
     uint256_from_compact,
     WITNESS_SCALE_FACTOR,
     MAX_SEQUENCE_NONFINAL,
+    BLOCK_SPACING,
+    DEFAULT_BLOCK_RESERVED_WEIGHT,
+    MAX_BLOCK_SIGOPS_COST,
+    MAX_BLOCK_WEIGHT,
 )
 from .script import (
     CScript,
@@ -47,17 +51,18 @@ from .script_util import (
 )
 from .util import assert_equal
 
-MAX_BLOCK_SIGOPS = 333  # SideBoost: MAX_BLOCK_SIGOPS_COST / WITNESS_SCALE_FACTOR
+MAX_BLOCK_SIGOPS = MAX_BLOCK_SIGOPS_COST // WITNESS_SCALE_FACTOR  # SideBoost: 333
 MAX_BLOCK_SIGOPS_WEIGHT = MAX_BLOCK_SIGOPS * WITNESS_SCALE_FACTOR
 # SideBoost: the largest transaction that fits in a block next to the default
 # coinbase reservation (GetMaxStandardTxWeight / GetMaxStandardTxSigOpsCost)
-MAX_STANDARD_TX_SIGOPS = 232  # 931 sigops cost / WITNESS_SCALE_FACTOR
-MAX_STANDARD_TX_WEIGHT = 58664
+DEFAULT_COINBASE_OUTPUT_MAX_ADDITIONAL_SIGOPS = 400
+MAX_STANDARD_TX_SIGOPS = min(16_000, MAX_BLOCK_SIGOPS_COST - DEFAULT_COINBASE_OUTPUT_MAX_ADDITIONAL_SIGOPS - 1) // WITNESS_SCALE_FACTOR  # SideBoost: 931 // 4 = 232
+MAX_STANDARD_TX_WEIGHT = min(400_000, (MAX_BLOCK_WEIGHT - DEFAULT_BLOCK_RESERVED_WEIGHT - 1) // WITNESS_SCALE_FACTOR * WITNESS_SCALE_FACTOR)  # SideBoost: 58,664
 
 # Genesis block time (regtest)
 TIME_GENESIS_BLOCK = 1296688602
 
-MAX_FUTURE_BLOCK_TIME = 5 * 60  # SideBoost: consensus nMaxFutureBlockTime
+MAX_FUTURE_BLOCK_TIME = min(2 * 60 * 60, 30 * BLOCK_SPACING)  # SideBoost: consensus nMaxFutureBlockTime, 5 min
 # Grace period for timestamps in rescans and pruning (Bitcoin's 2 hours)
 TIMESTAMP_WINDOW = 2 * 60 * 60
 
