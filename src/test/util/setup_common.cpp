@@ -167,6 +167,9 @@ BasicTestingSetup::BasicTestingSetup(const ChainType chainType, TestOpts opts)
             "-loglevel=trace",
             "-debug",
             "-debugexclude=leveldb",
+            // Chains other than regtest take deposits, which need an enforcer
+            // (unused: tests don't connect to it)
+            "-enforcer=127.0.0.1:1",
         },
         opts.extra_args);
     if (G_TEST_COMMAND_LINE_ARGUMENTS) {

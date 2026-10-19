@@ -130,6 +130,9 @@ static void SetSideBoostConsensus(Consensus::Params& consensus)
        rounded to the nearest multiple of WITNESS_SCALE_FACTOR.  */
     consensus.nMaxBlockWeight = 66'668;
     consensus.nMaxBlockSigOpsCost = 1'332;
+    /* Deposits from ECX sidechain slot 83 (0x53, "S"), on each network
+       from the ECX network of the same kind.  */
+    consensus.deposit_slot = 83;
     /* A deposit is credited once 3 ECX blocks (~30 min) are on top of its
        block, which makes undoing it through an ECX reorg rare.  */
     consensus.nDepositMinDepth = 3;
@@ -316,9 +319,6 @@ public:
         m_chain_type = ChainType::TESTNET4;
         SetSideBoostConsensus(consensus);
         ApplyDeploymentOptions(opts.dep_opts);
-        /* Deposits from ECX testnet4's slot 83 (0x53, "S"), the slot meant
-           for mainnet too.  */
-        consensus.deposit_slot = 83;
 
         pchMessageStart[0] = 0xfd;
         pchMessageStart[1] = 0xc2;

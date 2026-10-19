@@ -558,6 +558,10 @@ def write_config(config_path, *, n, chain, extra_config="", disable_autoconnect=
         f.write("unsafesqlitesync=1\n")
         if disable_autoconnect:
             f.write("connect=0\n")
+        if chain != "regtest":
+            # Chains other than regtest take deposits from the parent chain,
+            # so they need an enforcer; tests on them don't use deposits.
+            f.write("enforcer=127.0.0.1:1\n")
         # Limit max connections to mitigate test failures on some systems caused by the warning:
         # "Warning: Reducing -maxconnections from <...> to <...> due to system limitations".
         # For details, consult the `AppInitParameterInteraction` function in src/init.cpp.
