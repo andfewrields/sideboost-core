@@ -98,6 +98,11 @@ private:
     void resetBlock();
     /** Add the deposits ready to be credited (see drivechain/deposit.h). */
     void addDeposits() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+    /** Add the pending withdrawal bundle's outcome, once it can be recorded
+     *  (see drivechain/withdrawal.h). */
+    void addBundleOutcome() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+    /** Add a parent chain event transaction (spending nothing, paying no fee). */
+    void addParentChainEvent(CTransactionRef tx);
     /** Add a tx to the block */
     void AddToBlock(const CTxMemPoolEntry& entry);
 

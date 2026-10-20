@@ -131,8 +131,8 @@ unsigned int GetLegacySigOpCount(const CTransaction& tx)
 
 unsigned int GetP2SHSigOpCount(const CTransaction& tx, const CCoinsViewCache& inputs)
 {
-    // Neither spends a coin
-    if (tx.IsCoinBase() || tx.IsDeposit())
+    // None spends a coin
+    if (tx.IsCoinBase() || tx.IsParentChainEvent())
         return 0;
 
     unsigned int nSigOps = 0;
@@ -151,7 +151,7 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
 {
     int64_t nSigOps = GetLegacySigOpCount(tx) * WITNESS_SCALE_FACTOR;
 
-    if (tx.IsCoinBase() || tx.IsDeposit())
+    if (tx.IsCoinBase() || tx.IsParentChainEvent())
         return nSigOps;
 
     if (flags & SCRIPT_VERIFY_P2SH) {

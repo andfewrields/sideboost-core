@@ -8,6 +8,7 @@
 #include <arith_uint256.h>
 #include <consensus/amount.h>
 #include <crypto/muhash.h>
+#include <drivechain/withdrawal.h>
 #include <index/base.h>
 #include <interfaces/chain.h>
 #include <uint256.h>
@@ -41,6 +42,9 @@ private:
     arith_uint256 m_total_new_outputs_ex_coinbase_amount{0};
     arith_uint256 m_total_coinbase_amount{0};
     arith_uint256 m_total_deposit_amount{0};
+    arith_uint256 m_total_withdrawal_amount{0};
+    //! The withdrawal queue after the current block (see drivechain/withdrawal.h)
+    drivechain::WithdrawalState m_withdrawal_state;
     CAmount m_total_unspendables_genesis_block{0};
     CAmount m_total_unspendables_bip30{0};
     CAmount m_total_unspendables_scripts{0};

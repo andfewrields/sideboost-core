@@ -119,6 +119,7 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   compressor.cpp
   core_io.cpp
   deploymentinfo.cpp
+  drivechain/withdrawal.cpp
   external_signer.cpp
   init/common.cpp
   kernel/chainparams.cpp

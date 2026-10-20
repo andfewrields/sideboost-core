@@ -349,13 +349,29 @@ public:
         return (vin.size() == 1 && vin[0].prevout.IsNull());
     }
 
-    /** A deposit from the parent chain (BIP300).  Its single input names the
-     *  parent chain's treasury output, and its scriptSig starts with
-     *  OP_RETURN, which no ordinary spend can do.  See drivechain/deposit.h.  */
-    bool IsDeposit() const
+    /** A record of a parent chain (BIP300) event, which spends nothing: its
+     *  single input names something on the parent chain, and its scriptSig
+     *  starts with OP_RETURN, which no ordinary spend can do.  A deposit or a
+     *  bundle outcome.  */
+    bool IsParentChainEvent() const
     {
         return vin.size() == 1 && !vin[0].prevout.IsNull() &&
                !vin[0].scriptSig.empty() && vin[0].scriptSig[0] == OP_RETURN;
+    }
+
+    /** A deposit from the parent chain: scriptSig OP_RETURN <8-byte sequence
+     *  number>.  See drivechain/deposit.h.  */
+    bool IsDeposit() const
+    {
+        return IsParentChainEvent() && vin[0].scriptSig.size() == 10 && vin[0].scriptSig[1] == 8;
+    }
+
+    /** The outcome of a withdrawal bundle on the parent chain: scriptSig
+     *  OP_RETURN OP_1 or OP_2.  See drivechain/withdrawal.h.  */
+    bool IsBundleOutcome() const
+    {
+        return IsParentChainEvent() && vin[0].scriptSig.size() == 2 &&
+               (vin[0].scriptSig[1] == OP_1 || vin[0].scriptSig[1] == OP_2);
     }
 
     bool Equals(const CTransaction& other, const EqualsOptions opts = {}) const

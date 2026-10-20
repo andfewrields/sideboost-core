@@ -21,7 +21,18 @@ std::string EncodeExtKey(const CExtKey& extkey);
 CExtPubKey DecodeExtPubKey(const std::string& str);
 std::string EncodeExtPubKey(const CExtPubKey& extpubkey);
 
+/** How a network writes addresses: its base58 prefixes and bech32 HRP.  */
+struct AddressFormat {
+    std::vector<unsigned char> pubkey_prefix;
+    std::vector<unsigned char> script_prefix;
+    std::string bech32_hrp;
+
+    static AddressFormat Of(const CChainParams& params);
+};
+
 std::string EncodeDestination(const CTxDestination& dest);
+std::string EncodeDestination(const CTxDestination& dest, const AddressFormat& format);
+CTxDestination DecodeDestination(const std::string& str, const AddressFormat& format, std::string& error_msg);
 CTxDestination DecodeDestination(const std::string& str);
 CTxDestination DecodeDestination(const std::string& str, std::string& error_msg, std::vector<int>* error_locations = nullptr);
 bool IsValidDestinationString(const std::string& str);

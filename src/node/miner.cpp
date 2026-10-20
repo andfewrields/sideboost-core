@@ -16,6 +16,7 @@
 #include <consensus/validation.h>
 #include <drivechain/deposit.h>
 #include <drivechain/parentchain.h>
+#include <drivechain/withdrawal.h>
 #include <interfaces/types.h>
 #include <node/blockstorage.h>
 #include <node/kernel_notifications.h>
@@ -172,6 +173,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     m_lock_time_cutoff = pindexPrev->GetMedianTimePast();
 
     addDeposits();
+    addBundleOutcome();
 
     if (m_mempool) {
         LOCK(m_mempool->cs);
@@ -281,16 +283,38 @@ void BlockAssembler::addDeposits()
     // In order, as many as fit
     for (const drivechain::Deposit& deposit : deposits) {
         CTransactionRef tx{drivechain::MakeDepositTransaction(deposit)};
-        const int64_t weight{GetTransactionWeight(*tx)};
-        const int64_t sigops_cost{GetLegacySigOpCount(*tx) * WITNESS_SCALE_FACTOR};
-        if (!TestChunkBlockLimits(weight, sigops_cost)) break;
-        pblocktemplate->block.vtx.push_back(std::move(tx));
-        pblocktemplate->vTxFees.push_back(0);
-        pblocktemplate->vTxSigOpsCost.push_back(sigops_cost);
-        nBlockWeight += weight;
-        nBlockSigOpsCost += sigops_cost;
-        ++nBlockTx;
+        if (!TestChunkBlockLimits(GetTransactionWeight(*tx), GetLegacySigOpCount(*tx) * WITNESS_SCALE_FACTOR)) break;
+        addParentChainEvent(std::move(tx));
     }
+}
+
+void BlockAssembler::addBundleOutcome()
+{
+    const Consensus::Params& consensus{chainparams.GetConsensus()};
+    drivechain::ParentChainView* const parent{m_chainstate.m_chainman.m_options.parent_chain};
+    if (!consensus.deposit_slot || !parent) return;
+
+    const CCoinsViewCache& view{m_chainstate.CoinsTip()};
+    const CTransactionRef pending{drivechain::PendingBlindedM6(view, drivechain::ReadWithdrawalState(view))};
+    if (!pending) return;
+    const uint256 m6id{pending->GetHash().ToUint256()};
+    const auto outcome{parent->BundleOutcomeOf(m6id)};
+    if (!outcome || !outcome->second) return;
+    CTransactionRef tx{drivechain::MakeBundleOutcomeTransaction(m6id, outcome->first)};
+    if (!TestChunkBlockLimits(GetTransactionWeight(*tx), GetLegacySigOpCount(*tx) * WITNESS_SCALE_FACTOR)) return;
+    addParentChainEvent(std::move(tx));
+}
+
+void BlockAssembler::addParentChainEvent(CTransactionRef tx)
+{
+    const int64_t weight{GetTransactionWeight(*tx)};
+    const int64_t sigops_cost{GetLegacySigOpCount(*tx) * WITNESS_SCALE_FACTOR};
+    pblocktemplate->block.vtx.push_back(std::move(tx));
+    pblocktemplate->vTxFees.push_back(0);
+    pblocktemplate->vTxSigOpsCost.push_back(sigops_cost);
+    nBlockWeight += weight;
+    nBlockSigOpsCost += sigops_cost;
+    ++nBlockTx;
 }
 
 bool BlockAssembler::TestChunkBlockLimits(int64_t chunk_weight, int64_t chunk_sigops_cost) const

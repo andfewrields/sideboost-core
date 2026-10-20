@@ -6,6 +6,7 @@
 #include <common/messages.h>
 #include <consensus/validation.h>
 #include <core_io.h>
+#include <drivechain/withdrawal.h>
 #include <key_io.h>
 #include <node/types.h>
 #include <policy/policy.h>
@@ -335,6 +336,52 @@ RPCMethod sendtoaddress()
     const bool verbose{request.params[10].isNull() ? false : request.params[10].get_bool()};
 
     return SendMoney(*pwallet, coin_control, recipients, comment, comment_to, verbose);
+},
+    };
+}
+
+RPCMethod withdraw()
+{
+    return RPCMethod{
+        "withdraw",
+        "Withdraw to an address on the parent chain (BIP300).  The withdrawal waits in the withdrawal\n"
+        "queue until a bundle pays it out on the parent chain; see getwithdrawals." +
+        HELP_REQUIRING_PASSPHRASE,
+                {
+                    {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "The parent chain address to pay out to."},
+                    {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "The amount to pay out, in " + CURRENCY_UNIT + "."},
+                    {"parent_fee", RPCArg::Type::AMOUNT, RPCArg::Default{"0.0001"}, "Paid to the parent chain's miners when the withdrawal is paid out, in " + CURRENCY_UNIT + ".\n"
+                                         "The withdrawal costs amount + parent_fee on this chain."},
+                    {"fee_rate", RPCArg::Type::AMOUNT, RPCArg::DefaultHint{"not set, fall back to wallet fee estimation"}, "Specify a fee rate in " + CURRENCY_ATOM + "/vB for this chain's transaction."},
+                },
+                RPCResult{RPCResult::Type::STR_HEX, "txid", "The transaction id."},
+                RPCExamples{
+                    HelpExampleCli("withdraw", "\"bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080\" 0.1")
+                    + HelpExampleRpc("withdraw", "\"bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080\", 0.1")
+                },
+        [](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
+{
+    std::shared_ptr<CWallet> const pwallet = GetWalletForJSONRPCRequest(request);
+    if (!pwallet) return UniValue::VNULL;
+    pwallet->BlockUntilSyncedToCurrentChain();
+    LOCK(pwallet->cs_wallet);
+
+    std::string error;
+    const CTxDestination dest{DecodeDestination(request.params[0].get_str(), drivechain::ParentAddressFormat(Params().GetChainType()), error)};
+    if (!IsValidDestination(dest)) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid parent chain address: " + error);
+    const CScript payout_script{GetScriptForDestination(dest)};
+    if (payout_script.size() > drivechain::MAX_PAYOUT_SCRIPT_SIZE) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Unsupported parent chain address");
+    const CAmount amount{AmountFromValue(request.params[1])};
+    const CAmount parent_fee{request.params[2].isNull() ? CAmount{10000} : AmountFromValue(request.params[2], /*decimals=*/8)};
+    if (amount <= 0) throw JSONRPCError(RPC_TYPE_ERROR, "Invalid amount");
+    if (!MoneyRange(amount + parent_fee)) throw JSONRPCError(RPC_TYPE_ERROR, "Amount out of range");
+    // As the mempool requires
+    if (IsDust(CTxOut{amount, payout_script}, pwallet->chain().relayDustFee())) throw JSONRPCError(RPC_INVALID_PARAMETER, "Amount is dust on the parent chain");
+
+    CCoinControl coin_control;
+    SetFeeEstimateMode(*pwallet, coin_control, /*conf_target=*/UniValue{}, /*estimate_mode=*/UniValue{}, /*fee_rate=*/request.params[3], /*override_min_fee=*/false);
+    std::vector<CRecipient> recipients{{CNoDestination{drivechain::MakeWithdrawalScript(payout_script, parent_fee)}, amount + parent_fee, /*fSubtractFeeFromAmount=*/false}};
+    return SendMoney(*pwallet, coin_control, recipients, /*comment=*/std::nullopt, /*comment_to=*/std::nullopt, /*verbose=*/false);
 },
     };
 }

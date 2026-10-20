@@ -446,8 +446,8 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
 
     // If available, use Undo data to calculate the fee. Note that txundo == nullptr
     // for coinbase transactions and for transactions where undo data is unavailable.
-    // A deposit spends nothing: its undo data is the deposit state it replaced
-    const bool have_undo = txundo != nullptr && !tx.IsDeposit();
+    // A parent chain event spends nothing: its undo data is drivechain state
+    const bool have_undo = txundo != nullptr && !tx.IsParentChainEvent();
     CAmount amt_total_in = 0;
     CAmount amt_total_out = 0;
 

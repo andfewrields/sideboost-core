@@ -23,21 +23,21 @@ namespace {
 class DestinationEncoder
 {
 private:
-    const CChainParams& m_params;
+    const AddressFormat& m_format;
 
 public:
-    explicit DestinationEncoder(const CChainParams& params) : m_params(params) {}
+    explicit DestinationEncoder(const AddressFormat& format) : m_format(format) {}
 
     std::string operator()(const PKHash& id) const
     {
-        std::vector<unsigned char> data = m_params.Base58Prefix(CChainParams::PUBKEY_ADDRESS);
+        std::vector<unsigned char> data = m_format.pubkey_prefix;
         data.insert(data.end(), id.begin(), id.end());
         return EncodeBase58Check(data);
     }
 
     std::string operator()(const ScriptHash& id) const
     {
-        std::vector<unsigned char> data = m_params.Base58Prefix(CChainParams::SCRIPT_ADDRESS);
+        std::vector<unsigned char> data = m_format.script_prefix;
         data.insert(data.end(), id.begin(), id.end());
         return EncodeBase58Check(data);
     }
@@ -47,7 +47,7 @@ public:
         std::vector<unsigned char> data = {0};
         data.reserve(33);
         ConvertBits<8, 5, true>([&](unsigned char c) { data.push_back(c); }, id.begin(), id.end());
-        return bech32::Encode(bech32::Encoding::BECH32, m_params.Bech32HRP(), data);
+        return bech32::Encode(bech32::Encoding::BECH32, m_format.bech32_hrp, data);
     }
 
     std::string operator()(const WitnessV0ScriptHash& id) const
@@ -55,7 +55,7 @@ public:
         std::vector<unsigned char> data = {0};
         data.reserve(53);
         ConvertBits<8, 5, true>([&](unsigned char c) { data.push_back(c); }, id.begin(), id.end());
-        return bech32::Encode(bech32::Encoding::BECH32, m_params.Bech32HRP(), data);
+        return bech32::Encode(bech32::Encoding::BECH32, m_format.bech32_hrp, data);
     }
 
     std::string operator()(const WitnessV1Taproot& tap) const
@@ -63,7 +63,7 @@ public:
         std::vector<unsigned char> data = {1};
         data.reserve(53);
         ConvertBits<8, 5, true>([&](unsigned char c) { data.push_back(c); }, tap.begin(), tap.end());
-        return bech32::Encode(bech32::Encoding::BECH32M, m_params.Bech32HRP(), data);
+        return bech32::Encode(bech32::Encoding::BECH32M, m_format.bech32_hrp, data);
     }
 
     std::string operator()(const WitnessUnknown& id) const
@@ -75,21 +75,21 @@ public:
         std::vector<unsigned char> data = {(unsigned char)id.GetWitnessVersion()};
         data.reserve(1 + CeilDiv(program.size() * 8, 5u));
         ConvertBits<8, 5, true>([&](unsigned char c) { data.push_back(c); }, program.begin(), program.end());
-        return bech32::Encode(bech32::Encoding::BECH32M, m_params.Bech32HRP(), data);
+        return bech32::Encode(bech32::Encoding::BECH32M, m_format.bech32_hrp, data);
     }
 
     std::string operator()(const CNoDestination& no) const { return {}; }
     std::string operator()(const PubKeyDestination& pk) const { return {}; }
 };
 
-CTxDestination DecodeDestination(const std::string& str, const CChainParams& params, std::string& error_str, std::vector<int>* error_locations)
+CTxDestination DecodeDestination(const std::string& str, const AddressFormat& format, std::string& error_str, std::vector<int>* error_locations)
 {
     std::vector<unsigned char> data;
     uint160 hash;
     error_str = "";
 
     // Note this will be false if it is a valid Bech32 address for a different network
-    bool is_bech32 = (ToLower(str.substr(0, params.Bech32HRP().size())) == params.Bech32HRP());
+    bool is_bech32 = (ToLower(str.substr(0, format.bech32_hrp.size())) == format.bech32_hrp);
 
     /* Upstream only calls DecodeBase58Check if !is_bech32.  But in Namecoin, it is
        possible to have legacy base58 addresses that start with NC and thus look
@@ -98,14 +98,14 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
         // base58-encoded Bitcoin addresses.
         // Public-key-hash-addresses have version 0 (or 111 testnet).
         // The data vector contains RIPEMD160(SHA256(pubkey)), where pubkey is the serialized public key.
-        const std::vector<unsigned char>& pubkey_prefix = params.Base58Prefix(CChainParams::PUBKEY_ADDRESS);
+        const std::vector<unsigned char>& pubkey_prefix = format.pubkey_prefix;
         if (data.size() == hash.size() + pubkey_prefix.size() && std::equal(pubkey_prefix.begin(), pubkey_prefix.end(), data.begin())) {
             std::copy(data.begin() + pubkey_prefix.size(), data.end(), hash.begin());
             return PKHash(hash);
         }
         // Script-hash-addresses have version 5 (or 196 testnet).
         // The data vector contains RIPEMD160(SHA256(cscript)), where cscript is the serialized redemption script.
-        const std::vector<unsigned char>& script_prefix = params.Base58Prefix(CChainParams::SCRIPT_ADDRESS);
+        const std::vector<unsigned char>& script_prefix = format.script_prefix;
         if (data.size() == hash.size() + script_prefix.size() && std::equal(script_prefix.begin(), script_prefix.end(), data.begin())) {
             std::copy(data.begin() + script_prefix.size(), data.end(), hash.begin());
             return ScriptHash(hash);
@@ -139,8 +139,8 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
             return CNoDestination();
         }
         // Bech32 decoding
-        if (dec.hrp != params.Bech32HRP()) {
-            error_str = strprintf("Invalid or unsupported prefix for Segwit (Bech32) address (expected %s, got %s).", params.Bech32HRP(), dec.hrp);
+        if (dec.hrp != format.bech32_hrp) {
+            error_str = strprintf("Invalid or unsupported prefix for Segwit (Bech32) address (expected %s, got %s).", format.bech32_hrp, dec.hrp);
             return CNoDestination();
         }
         int version = dec.data[0]; // The first 5 bit symbol is the witness version (0-16)
@@ -295,14 +295,33 @@ std::string EncodeExtKey(const CExtKey& key)
     return ret;
 }
 
+AddressFormat AddressFormat::Of(const CChainParams& params)
+{
+    return {
+        .pubkey_prefix = params.Base58Prefix(CChainParams::PUBKEY_ADDRESS),
+        .script_prefix = params.Base58Prefix(CChainParams::SCRIPT_ADDRESS),
+        .bech32_hrp = params.Bech32HRP(),
+    };
+}
+
+std::string EncodeDestination(const CTxDestination& dest, const AddressFormat& format)
+{
+    return std::visit(DestinationEncoder(format), dest);
+}
+
 std::string EncodeDestination(const CTxDestination& dest)
 {
-    return std::visit(DestinationEncoder(Params()), dest);
+    return EncodeDestination(dest, AddressFormat::Of(Params()));
+}
+
+CTxDestination DecodeDestination(const std::string& str, const AddressFormat& format, std::string& error_msg)
+{
+    return DecodeDestination(str, format, error_msg, nullptr);
 }
 
 CTxDestination DecodeDestination(const std::string& str, std::string& error_msg, std::vector<int>* error_locations)
 {
-    return DecodeDestination(str, Params(), error_msg, error_locations);
+    return DecodeDestination(str, AddressFormat::Of(Params()), error_msg, error_locations);
 }
 
 CTxDestination DecodeDestination(const std::string& str)
@@ -314,7 +333,7 @@ CTxDestination DecodeDestination(const std::string& str)
 bool IsValidDestinationString(const std::string& str, const CChainParams& params)
 {
     std::string error_msg;
-    return IsValidDestination(DecodeDestination(str, params, error_msg, nullptr));
+    return IsValidDestination(DecodeDestination(str, AddressFormat::Of(params), error_msg, nullptr));
 }
 
 bool IsValidDestinationString(const std::string& str)

@@ -21,10 +21,12 @@
 #include <crypto/hex_base.h>
 #include <dbwrapper.h>
 #include <deploymentinfo.h>
+#include <drivechain/withdrawal.h>
 #include <flatfile.h>
 #include <index/base.h>
 #include <index/blockfilterindex.h>
 #include <index/coinstatsindex.h>
+#include <key_io.h>
 #include <interfaces/mining.h>
 #include <interfaces/types.h>
 #include <kernel/coinstats.h>
@@ -1189,6 +1191,7 @@ static RPCMethod gettxoutsetinfo()
                             {RPCResult::Type::STR_AMOUNT, "coinbase", "Coinbase subsidy amount of this block"},
                             {RPCResult::Type::STR_AMOUNT, "new_outputs_ex_coinbase", "Total amount of new outputs created by this block"},
                             {RPCResult::Type::STR_AMOUNT, "deposits", "Total amount of deposits from the parent chain credited by this block"},
+                            {RPCResult::Type::STR_AMOUNT, "withdrawals", "Total amount of withdrawals this block records as paid out on the parent chain"},
                             {RPCResult::Type::STR_AMOUNT, "unspendable", "Total amount of unspendable outputs created in this block"},
                             {RPCResult::Type::OBJ, "unspendables", "Detailed view of the unspendable categories",
                             {
@@ -1305,6 +1308,7 @@ static RPCMethod gettxoutsetinfo()
             block_info.pushKV("coinbase", ValueFromAmount(coinbase_amount));
             block_info.pushKV("new_outputs_ex_coinbase", ValueFromAmount(outputs_amount));
             block_info.pushKV("deposits", ValueFromAmount(static_cast<CAmount>((stats.total_deposit_amount - prev_stats.total_deposit_amount).GetLow64())));
+            block_info.pushKV("withdrawals", ValueFromAmount(static_cast<CAmount>((stats.total_withdrawal_amount - prev_stats.total_withdrawal_amount).GetLow64())));
             block_info.pushKV("unspendable", ValueFromAmount(block_total_unspendable_amount - prev_block_total_unspendable_amount));
 
             UniValue unspendables(UniValue::VOBJ);
@@ -1320,6 +1324,97 @@ static RPCMethod gettxoutsetinfo()
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Unable to read UTXO set");
     }
     return ret;
+},
+    };
+}
+
+static RPCMethod getwithdrawals()
+{
+    return RPCMethod{
+        "getwithdrawals",
+        "Returns the withdrawal queue (BIP300 withdrawals to the parent chain, see the withdraw wallet RPC)\n"
+        "and the pending bundle, at the tip of the active chain.",
+        {},
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::NUM, "waiting", "The number of withdrawals waiting for a bundle"},
+                {RPCResult::Type::ARR, "withdrawals", "The bundle's withdrawals, then the waiting ones, in queue order",
+                {
+                    {RPCResult::Type::OBJ, "", "",
+                    {
+                        {RPCResult::Type::NUM, "position", "The position in the queue"},
+                        {RPCResult::Type::STR_HEX, "txid", "The transaction that requested it"},
+                        {RPCResult::Type::NUM, "vout", "Its output"},
+                        {RPCResult::Type::NUM, "height", "The height of the block that requested it"},
+                        {RPCResult::Type::STR, "address", /*optional=*/true, "The parent chain address it pays out to"},
+                        {RPCResult::Type::STR_HEX, "script", "The parent chain script it pays out to"},
+                        {RPCResult::Type::STR_AMOUNT, "amount", "The amount it pays out"},
+                        {RPCResult::Type::STR_AMOUNT, "parent_fee", "The fee it pays the parent chain's miners"},
+                        {RPCResult::Type::STR, "status", "\"bundled\" or \"waiting\""},
+                    }},
+                }},
+                {RPCResult::Type::OBJ, "bundle", /*optional=*/true, "The pending bundle, if any",
+                {
+                    {RPCResult::Type::STR_HEX, "m6id", "Its M6ID (BIP300)"},
+                    {RPCResult::Type::STR_HEX, "blockhash", "The block that created it"},
+                    {RPCResult::Type::NUM, "height", "That block's height"},
+                    {RPCResult::Type::NUM, "withdrawals", "The number of withdrawals it pays out"},
+                    {RPCResult::Type::STR_AMOUNT, "amount", "The total it pays out"},
+                    {RPCResult::Type::STR_AMOUNT, "parent_fee", "The total fee it pays the parent chain's miners"},
+                    {RPCResult::Type::STR_HEX, "hex", "Its blinded M6, as proposed to the parent chain's enforcer"},
+                }},
+            }},
+        RPCExamples{
+            HelpExampleCli("getwithdrawals", "")
+            + HelpExampleRpc("getwithdrawals", "")
+        },
+        [&](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
+{
+    ChainstateManager& chainman = EnsureAnyChainman(request.context);
+    LOCK(cs_main);
+    const CCoinsViewCache& view{chainman.ActiveChainstate().CoinsTip()};
+    const drivechain::WithdrawalState state{drivechain::ReadWithdrawalState(view)};
+    const AddressFormat format{drivechain::ParentAddressFormat(chainman.GetParams().GetChainType())};
+
+    UniValue result{UniValue::VOBJ};
+    result.pushKV("waiting", state.tail - state.head);
+    UniValue withdrawals{UniValue::VARR};
+    for (uint32_t position{state.bundle ? state.BundleStart() : state.head}; position < state.tail; ++position) {
+        const Coin& coin{view.AccessCoin(drivechain::QueueOutpoint(position))};
+        const auto entry{CHECK_NONFATAL(drivechain::ParseQueueEntryCoin(coin))};
+        UniValue obj{UniValue::VOBJ};
+        obj.pushKV("position", position);
+        obj.pushKV("txid", entry->origin.hash.GetHex());
+        obj.pushKV("vout", entry->origin.n);
+        obj.pushKV("height", coin.nHeight);
+        if (CTxDestination dest; ExtractDestination(entry->withdrawal.payout_script, dest)) obj.pushKV("address", EncodeDestination(dest, format));
+        obj.pushKV("script", HexStr(entry->withdrawal.payout_script));
+        obj.pushKV("amount", ValueFromAmount(entry->withdrawal.payout));
+        obj.pushKV("parent_fee", ValueFromAmount(entry->withdrawal.fee));
+        obj.pushKV("status", position < state.head ? "bundled" : "waiting");
+        withdrawals.push_back(std::move(obj));
+    }
+    result.pushKV("withdrawals", std::move(withdrawals));
+
+    if (const auto bundled{drivechain::BundleWithdrawals(view, state)}) {
+        const CTransactionRef blinded{drivechain::MakeBlindedM6(*bundled, state.bundle->block_hash)};
+        CAmount amount{0}, fee{0};
+        for (const drivechain::Withdrawal& withdrawal : *bundled) {
+            amount += withdrawal.payout;
+            fee += withdrawal.fee;
+        }
+        UniValue bundle{UniValue::VOBJ};
+        bundle.pushKV("m6id", blinded->GetHash().GetHex());
+        bundle.pushKV("blockhash", state.bundle->block_hash.GetHex());
+        bundle.pushKV("height", state.bundle->height);
+        bundle.pushKV("withdrawals", state.bundle->size);
+        bundle.pushKV("amount", ValueFromAmount(amount));
+        bundle.pushKV("parent_fee", ValueFromAmount(fee));
+        bundle.pushKV("hex", EncodeHexTx(*blinded));
+        result.pushKV("bundle", std::move(bundle));
+    }
+    return result;
 },
     };
 }
@@ -2245,8 +2340,9 @@ static RPCMethod getblockstats()
             }
         }
 
-        // Neither spends anything (a deposit's undo data is the deposit state)
-        if (tx->IsCoinBase() || tx->IsDeposit()) {
+        // None spends anything (a parent chain event's undo data is drivechain
+        // state)
+        if (tx->IsCoinBase() || tx->IsParentChainEvent()) {
             continue;
         }
 
@@ -3788,6 +3884,7 @@ void RegisterBlockchainRPCCommands(CRPCTable& t)
         {"blockchain", &getblockstats},
         {"blockchain", &getbestblockhash},
         {"blockchain", &getblockcount},
+        {"blockchain", &getwithdrawals},
         {"blockchain", &getblock},
         {"blockchain", &getblockfrompeer},
         {"blockchain", &getblockhash},

@@ -32,7 +32,8 @@ public:
 
     ParentHeader GetTip() override;
     std::vector<ParentHeader> GetHeaders(const uint256& hash, uint32_t max_ancestors) override;
-    std::vector<TreasuryEvent> GetTreasuryEvents(uint8_t slot, const std::optional<uint256>& start, const uint256& end) override;
+    ParentEvents GetEvents(uint8_t slot, const std::optional<uint256>& start, const uint256& end) override;
+    void ProposeWithdrawalBundle(uint8_t slot, const CTransaction& blinded_m6) override;
 
 private:
     std::string m_host;

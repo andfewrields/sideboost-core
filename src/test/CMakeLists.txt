@@ -143,6 +143,7 @@ add_executable(test_namecoin
 #  miner_tests.cpp
 #  testnet4_miner_tests.cpp
 #  txpackage_tests.cpp
+  withdrawal_tests.cpp
 )
 
 include(TargetDataSources)

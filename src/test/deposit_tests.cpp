@@ -8,6 +8,7 @@
 #include <key.h>
 #include <key_io.h>
 #include <script/interpreter.h>
+#include <test/util/parentchain.h>
 #include <test/util/random.h>
 #include <test/util/setup_common.h>
 #include <undo.h>
@@ -51,7 +52,8 @@ BOOST_AUTO_TEST_CASE(deposit_transaction)
     // Malformed claims
     CMutableTransaction bad{*tx};
     bad.vin[0].scriptSig = CScript() << OP_RETURN << std::vector<unsigned char>(7);
-    BOOST_CHECK(CTransaction{bad}.IsDeposit());
+    BOOST_CHECK(CTransaction{bad}.IsParentChainEvent());
+    BOOST_CHECK(!CTransaction{bad}.IsDeposit());
     BOOST_CHECK(!ParseDepositTransaction(CTransaction{bad}));
     bad.vin[0].scriptSig = tx->vin[0].scriptSig;
     bad.vin[0].scriptSig << OP_TRUE;
@@ -106,60 +108,6 @@ BOOST_AUTO_TEST_CASE(deposit_coins)
 }
 
 namespace {
-
-/** A parent chain in memory: blocks with treasury events, and a best tip.  */
-class FakeParentChain final : public DepositSource
-{
-public:
-    struct Block {
-        ParentHeader header;
-        std::vector<TreasuryEvent> events;
-    };
-    std::map<uint256, Block> blocks;
-    uint256 tip;
-    FastRandomContext& rng;
-
-    explicit FakeParentChain(FastRandomContext& rng_in) : rng{rng_in}
-    {
-        const uint256 genesis{rng.rand256()};
-        blocks[genesis] = {{genesis, uint256{}, 0}, {}};
-        tip = genesis;
-    }
-
-    /** Mine a block on `prev` (default: the tip) and make it the tip.  */
-    uint256 Mine(std::vector<TreasuryEvent> events = {}, std::optional<uint256> prev = {})
-    {
-        const ParentHeader& parent{blocks.at(prev.value_or(tip)).header};
-        const uint256 hash{rng.rand256()};
-        for (TreasuryEvent& event : events) {
-            event.block_hash = hash;
-            event.height = parent.height + 1;
-        }
-        blocks[hash] = {{hash, parent.hash, parent.height + 1}, std::move(events)};
-        tip = hash;
-        return hash;
-    }
-
-    ParentHeader GetTip() override { return blocks.at(tip).header; }
-
-    std::vector<ParentHeader> GetHeaders(const uint256& hash, uint32_t max_ancestors) override
-    {
-        std::vector<ParentHeader> res;
-        for (auto it{blocks.find(hash)}; it != blocks.end() && res.size() <= max_ancestors; it = blocks.find(it->second.header.prev)) {
-            res.push_back(it->second.header);
-        }
-        return res;
-    }
-
-    std::vector<TreasuryEvent> GetTreasuryEvents(uint8_t, const std::optional<uint256>& start, const uint256& end) override
-    {
-        std::vector<TreasuryEvent> res;
-        for (auto it{blocks.find(end)}; it != blocks.end() && it->first != start; it = blocks.find(it->second.header.prev)) {
-            res.insert(res.end(), it->second.events.begin(), it->second.events.end());
-        }
-        return res;
-    }
-};
 
 TreasuryEvent DepositEvent(const Deposit& deposit) { return {deposit.sequence, {}, 0, deposit}; }
 TreasuryEvent WithdrawalEvent(uint64_t sequence) { return {sequence, {}, 0, std::nullopt}; }

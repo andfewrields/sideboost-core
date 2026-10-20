@@ -20,6 +20,7 @@
 #include <consensus/validation.h>
 #include <drivechain/deposit.h>
 #include <drivechain/parentchain.h>
+#include <drivechain/withdrawal.h>
 #include <cuckoocache.h>
 #include <flatfile.h>
 #include <hash.h>
@@ -322,7 +323,7 @@ void Chainstate::MaybeUpdateMempoolForReorg(
         auto it = queuedTx.rbegin();
         while (it != queuedTx.rend()) {
             // ignore validation errors in resurrected transactions
-            if (!fAddToMempool || (*it)->IsCoinBase() || (*it)->IsDeposit() ||
+            if (!fAddToMempool || (*it)->IsCoinBase() || (*it)->IsParentChainEvent() ||
                 AcceptToMemoryPool(*this, *it, GetTime(),
                     /*bypass_limits=*/true, /*test_accept=*/false).m_result_type !=
                         MempoolAcceptResult::ResultType::VALID) {
@@ -802,9 +803,23 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // Coinbase is only valid in a block, not as a loose transaction
     if (tx.IsCoinBase())
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "coinbase");
-    // Deposits likewise
+    // Deposits and bundle outcomes likewise
     if (tx.IsDeposit())
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "deposit");
+    if (tx.IsParentChainEvent())
+        return state.Invalid(TxValidationResult::TX_CONSENSUS, "bundle-outcome");
+
+    // Withdrawals, which must pay out more than dust on the parent chain
+    for (const CTxOut& out : tx.vout) {
+        if (!drivechain::IsWithdrawalScript(out.scriptPubKey)) continue;
+        const auto withdrawal{drivechain::ParseWithdrawal(out)};
+        if (!m_active_chainstate.m_chainman.GetConsensus().deposit_slot || !withdrawal) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-withdrawal");
+        }
+        if (m_pool.m_opts.require_standard && IsDust(CTxOut{withdrawal->payout, withdrawal->payout_script}, m_pool.m_opts.dust_relay_feerate)) {
+            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "withdrawal-dust");
+        }
+    }
 
     // Rather not work on nonstandard transactions (unless -testnet/-regtest)
     std::string reason;
@@ -2274,6 +2289,12 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
     bool fEnforceBIP30 = !((pindex->nHeight==91722 && pindex->GetBlockHash() == uint256{"00000000000271a2dc26e7667f8419f2e15416dc6955e5a6c6cdf3f2574dd08e"}) ||
                            (pindex->nHeight==91812 && pindex->GetBlockHash() == uint256{"00000000000af0aed4792b1acee3d966af36cf5def14935db8de83d6f9306f2f"}));
 
+    // The block's withdrawals (its bundle outcome's undo data among them)
+    if (!drivechain::DisconnectWithdrawals(block, blockUndo, pindex->nHeight, pindex->GetBlockHash(), view)) {
+        LogError("DisconnectBlock(): withdrawal state inconsistent\n");
+        return DISCONNECT_FAILED;
+    }
+
     // undo transactions in reverse order
     for (int i = block.vtx.size() - 1; i >= 0; i--) {
         const CTransaction &tx = *(block.vtx[i]);
@@ -2299,6 +2320,8 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
         // restore inputs
         if (i > 0) { // not coinbases
             CTxUndo &txundo = blockUndo.vtxundo[i-1];
+            // A bundle outcome spent nothing; DisconnectWithdrawals undid it
+            if (tx.IsBundleOutcome()) continue;
             if (txundo.vprevout.size() != tx.vin.size()) {
                 LogError("DisconnectBlock(): transaction and undo data inconsistent\n");
                 return DISCONNECT_FAILED;
@@ -2428,6 +2451,46 @@ static bool CheckDeposits(const CBlock& block, const CCoinsViewCache& view, driv
                                  strprintf("deposit %s does not match the parent chain's number %d", tx.GetHash().ToString(), *sequence));
         }
         next = *sequence + 1;
+    }
+    return true;
+}
+
+/** Check a block's bundle outcome (see drivechain/withdrawal.h): it must be
+ *  that of the pending bundle, as the node's view of the parent chain has it.
+ *  As in CheckDeposits, a view that can't tell yet is an error.  */
+static bool CheckBundleOutcome(const CBlock& block, const CCoinsViewCache& view, drivechain::ParentChainView* parent,
+                               BlockValidationState& state, bool& parent_dependent)
+{
+    using drivechain::DepositStatus;
+    const auto index{drivechain::BundleOutcomeIndex(block)};
+    if (!index) return true;
+    const CTransaction& tx{*block.vtx[*index]};
+    const auto recorded{drivechain::ParseBundleOutcomeTransaction(tx)};
+    if (!recorded) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-bundle-outcome-format",
+                             strprintf("malformed bundle outcome %s", tx.GetHash().ToString()));
+    }
+    const CTransactionRef pending{drivechain::PendingBlindedM6(view, drivechain::ReadWithdrawalState(view))};
+    if (!pending || pending->GetHash().ToUint256() != recorded->first) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-bundle-outcome-bundle",
+                             strprintf("bundle %s is not pending", recorded->first.ToString()));
+    }
+    if (!parent) return state.Error("bundle outcomes can't be checked without a view of the parent chain (-enforcer)");
+    try {
+        parent->Update();
+    } catch (const drivechain::DepositSourceError& e) {
+        return state.Error(strprintf("can't check the bundle outcome: %s", e.what()));
+    }
+    switch (parent->CheckBundleOutcome(tx)) {
+    case DepositStatus::OK:
+        break;
+    case DepositStatus::UNKNOWN:
+    case DepositStatus::TOO_SHALLOW:
+        return state.Error(strprintf("the outcome of bundle %s is not (yet) confirmed in our view of the parent chain", recorded->first.ToString()));
+    case DepositStatus::MISMATCH:
+        parent_dependent = true;
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-bundle-outcome-mismatch",
+                             strprintf("bundle %s did not end that way in the parent chain", recorded->first.ToString()));
     }
     return true;
 }
@@ -2646,7 +2709,8 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         m_last_script_check_reason_logged = script_check_reason;
     }
 
-    if (bool parent_dependent{false}; !CheckDeposits(block, view, m_chainman.m_options.parent_chain, state, parent_dependent)) {
+    if (bool parent_dependent{false}; !CheckDeposits(block, view, m_chainman.m_options.parent_chain, state, parent_dependent) ||
+                                      !CheckBundleOutcome(block, view, m_chainman.m_options.parent_chain, state, parent_dependent)) {
         // Checked again when the parent chain changes
         if (parent_dependent && !fJustCheck) SetParentChainFailure(*pindex, true);
         LogInfo("Block validation error: %s", state.ToString());
@@ -2675,10 +2739,11 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         const CTransaction &tx = *(block.vtx[i]);
 
         nInputs += tx.vin.size();
-        // Checked by CheckDeposits: credits a deposit, spends nothing
-        const bool is_deposit{tx.IsDeposit()};
+        // Checked by CheckDeposits and CheckBundleOutcome: records a parent
+        // chain event, spends nothing
+        const bool is_event{tx.IsParentChainEvent()};
 
-        if (!tx.IsCoinBase() && !is_deposit)
+        if (!tx.IsCoinBase() && !is_event)
         {
             CAmount txfee = 0;
             TxValidationState tx_state;
@@ -2721,7 +2786,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
             break;
         }
 
-        if (!tx.IsCoinBase() && !is_deposit && fScriptChecks)
+        if (!tx.IsCoinBase() && !is_event && fScriptChecks)
         {
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
             bool tx_ok;
@@ -2747,10 +2812,19 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         if (i > 0) {
             blockundo.vtxundo.emplace_back();
         }
-        if (is_deposit) {
+        if (tx.IsDeposit()) {
             drivechain::UpdateCoinsForDeposit(tx, view, blockundo.vtxundo.back(), pindex->nHeight);
-        } else {
+        } else if (!is_event) {
             UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
+        } // A bundle outcome is applied with the block's withdrawals, below
+    }
+    // The block's withdrawals: the bundle outcome, the withdrawals its
+    // transactions request (their outputs aren't coins), the bundle its end
+    // creates
+    if (state.IsValid()) {
+        const auto outcome{drivechain::BundleOutcomeIndex(block)};
+        if (!drivechain::ConnectWithdrawals(block, pindex->nHeight, block_hash, view, outcome ? &blockundo.vtxundo.at(*outcome - 1) : nullptr)) {
+            state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-withdrawal-state", "withdrawal queue inconsistent with the block");
         }
     }
     const auto time_3{SteadyClock::now()};
@@ -4330,14 +4404,39 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
         }
     }
 
-    // Deposits come right after the coinbase, on chains that take them.  (Not
-    // in CheckBlock, whose failures a compact block doesn't cache.)
-    for (unsigned int i = 1, deposits_end = 1; i < block.vtx.size(); i++) {
-        if (!block.vtx[i]->IsDeposit()) continue;
-        if (!chainman.GetConsensus().deposit_slot)
+    // Deposits, then at most one bundle outcome, come right after the
+    // coinbase, on chains that take deposits; withdrawals are requested only
+    // there, by ordinary transactions.  (Not in CheckBlock, whose failures a
+    // compact block doesn't cache.)
+    const bool takes_deposits{chainman.GetConsensus().deposit_slot.has_value()};
+    for (unsigned int i = 1, events_end = 1, outcomes = 0; i < block.vtx.size(); i++) {
+        const CTransaction& tx{*block.vtx[i]};
+        if (!tx.IsParentChainEvent()) continue;
+        if (!takes_deposits)
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-deposit", "this chain takes no deposits");
-        if (i != deposits_end++)
-            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-deposit-position", "deposit after an ordinary transaction");
+        if (i != events_end++)
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-deposit-position", "deposit or bundle outcome after an ordinary transaction");
+        if (tx.IsDeposit()) {
+            if (outcomes)
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-deposit-position", "deposit after a bundle outcome");
+        } else if (tx.IsBundleOutcome()) {
+            if (outcomes++)
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-bundle-outcome-count", "more than one bundle outcome");
+        } else {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-parent-event", "neither a deposit nor a bundle outcome");
+        }
+    }
+    for (unsigned int i = 0; i < block.vtx.size(); i++) {
+        const CTransaction& tx{*block.vtx[i]};
+        for (const CTxOut& out : tx.vout) {
+            if (!drivechain::IsWithdrawalScript(out.scriptPubKey)) continue;
+            if (!takes_deposits)
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-withdrawal", "this chain takes no withdrawals");
+            if (tx.IsCoinBase() || tx.IsParentChainEvent())
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-withdrawal", "withdrawal outside an ordinary transaction");
+            if (!drivechain::ParseWithdrawal(out))
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-withdrawal", strprintf("malformed withdrawal in %s", tx.GetHash().ToString()));
+        }
     }
 
     // Enforce rule that the coinbase starts with serialized block height

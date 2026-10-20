@@ -69,6 +69,8 @@ struct CCoinsStats {
     arith_uint256 total_coinbase_amount{0};
     //! Total cumulative amount of deposits from the parent chain up to and including this block
     arith_uint256 total_deposit_amount{0};
+    //! Total cumulative amount of withdrawals paid out on the parent chain up to and including this block
+    arith_uint256 total_withdrawal_amount{0};
 
     CCoinsStats() = default;
     CCoinsStats(int block_height, const uint256& block_hash);

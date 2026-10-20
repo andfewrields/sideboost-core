@@ -13,6 +13,7 @@
 #include <crypto/muhash.h>
 #include <dbwrapper.h>
 #include <drivechain/deposit.h>
+#include <drivechain/withdrawal.h>
 #include <index/base.h>
 #include <index/db_key.h>
 #include <interfaces/chain.h>
@@ -54,6 +55,8 @@ struct DBVal {
     arith_uint256 total_new_outputs_ex_coinbase_amount{0};
     arith_uint256 total_coinbase_amount{0};
     arith_uint256 total_deposit_amount{0};
+    arith_uint256 total_withdrawal_amount{0};
+    drivechain::WithdrawalState withdrawal_state;
     CAmount total_unspendables_genesis_block{0};
     CAmount total_unspendables_bip30{0};
     CAmount total_unspendables_scripts{0};
@@ -61,11 +64,15 @@ struct DBVal {
 
     SERIALIZE_METHODS(DBVal, obj)
     {
-        uint256 prevout_spent, new_outputs, coinbase, deposits;
+        uint256 prevout_spent, new_outputs, coinbase, deposits, withdrawals;
         SER_WRITE(obj, prevout_spent = ArithToUint256(obj.total_prevout_spent_amount));
         SER_WRITE(obj, new_outputs = ArithToUint256(obj.total_new_outputs_ex_coinbase_amount));
         SER_WRITE(obj, coinbase = ArithToUint256(obj.total_coinbase_amount));
         SER_WRITE(obj, deposits = ArithToUint256(obj.total_deposit_amount));
+        SER_WRITE(obj, withdrawals = ArithToUint256(obj.total_withdrawal_amount));
+        // The withdrawal state, as its coin
+        Coin withdrawal_state;
+        SER_WRITE(obj, withdrawal_state = drivechain::MakeWithdrawalStateCoin(obj.withdrawal_state));
 
         READWRITE(obj.muhash);
         READWRITE(obj.transaction_output_count);
@@ -76,6 +83,8 @@ struct DBVal {
         READWRITE(new_outputs);
         READWRITE(coinbase);
         READWRITE(deposits);
+        READWRITE(withdrawals);
+        READWRITE(withdrawal_state);
         READWRITE(obj.total_unspendables_genesis_block);
         READWRITE(obj.total_unspendables_bip30);
         READWRITE(obj.total_unspendables_scripts);
@@ -85,6 +94,8 @@ struct DBVal {
         SER_READ(obj, obj.total_new_outputs_ex_coinbase_amount = UintToArith256(new_outputs));
         SER_READ(obj, obj.total_coinbase_amount = UintToArith256(coinbase));
         SER_READ(obj, obj.total_deposit_amount = UintToArith256(deposits));
+        SER_READ(obj, obj.total_withdrawal_amount = UintToArith256(withdrawals));
+        SER_READ(obj, obj.withdrawal_state = drivechain::ParseWithdrawalStateCoin(withdrawal_state).value_or(drivechain::WithdrawalState{}));
     }
 };
 }; // namespace
@@ -141,6 +152,9 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                 const Coin coin{out, block.height, is_coinbase};
                 const COutPoint outpoint{tx->GetHash(), j};
 
+                // A withdrawal's value goes to the withdrawal queue (below)
+                if (!is_coinbase && !tx->IsParentChainEvent() && drivechain::ParseWithdrawal(out)) continue;
+
                 // Skip unspendable coins
                 if (coin.out.scriptPubKey.IsUnspendable()) {
                     m_total_unspendables_scripts += coin.out.nValue;
@@ -176,6 +190,8 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                 m_bogo_size += GetBogoSize(after.out.scriptPubKey);
                 continue;
             }
+            // A bundle outcome spends nothing (see the withdrawals below)
+            if (tx->IsBundleOutcome()) continue;
 
             // The coinbase tx has no undo data since no former output is spent
             if (!is_coinbase) {
@@ -195,6 +211,36 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                 }
             }
         }
+
+        // The block's withdrawals: queue entries (holding the requested
+        // withdrawals' value until they are paid out) and the state coin
+        const drivechain::WithdrawalState before{m_withdrawal_state};
+        const auto changes{drivechain::BlockWithdrawalChanges(*block.data, block.height, block.hash, m_withdrawal_state,
+                                                              drivechain::UndoEntryLookup(*block.data, *Assert(block.undo_data), before))};
+        if (!changes) {
+            LogError("withdrawal state of block %s inconsistent", block.hash.ToString());
+            return false;
+        }
+        for (const drivechain::CoinChange& change : *changes) {
+            const bool is_state{change.outpoint == drivechain::WithdrawalStateOutpoint()};
+            if (change.added) {
+                ApplyCoinHash(m_muhash, change.outpoint, change.coin);
+                ++m_transaction_output_count;
+                m_total_amount += change.coin.out.nValue;
+                m_bogo_size += GetBogoSize(change.coin.out.scriptPubKey);
+                if (!is_state) m_total_new_outputs_ex_coinbase_amount += change.coin.out.nValue;
+            } else {
+                RemoveCoinHash(m_muhash, change.outpoint, change.coin);
+                --m_transaction_output_count;
+                m_total_amount -= change.coin.out.nValue;
+                m_bogo_size -= GetBogoSize(change.coin.out.scriptPubKey);
+                // Spent, to pay out on the parent chain
+                if (!is_state) {
+                    m_total_prevout_spent_amount += change.coin.out.nValue;
+                    m_total_withdrawal_amount += change.coin.out.nValue;
+                }
+            }
+        }
     } else {
         // genesis block
         m_total_unspendables_genesis_block += block_subsidy;
@@ -205,7 +251,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
     // the miner did not claim the full block reward. Unclaimed block
     // rewards are also unspendable.
     const CAmount temp_total_unspendable_amount{m_total_unspendables_genesis_block + m_total_unspendables_bip30 + m_total_unspendables_scripts + m_total_unspendables_unclaimed_rewards};
-    const arith_uint256 unclaimed_rewards{(m_total_prevout_spent_amount + m_total_subsidy + m_total_deposit_amount) - (m_total_new_outputs_ex_coinbase_amount + m_total_coinbase_amount + temp_total_unspendable_amount)};
+    const arith_uint256 unclaimed_rewards{(m_total_prevout_spent_amount + m_total_subsidy + m_total_deposit_amount) - (m_total_new_outputs_ex_coinbase_amount + m_total_coinbase_amount + m_total_withdrawal_amount + temp_total_unspendable_amount)};
     assert(unclaimed_rewards <= arith_uint256(std::numeric_limits<CAmount>::max()));
     m_total_unspendables_unclaimed_rewards += static_cast<CAmount>(unclaimed_rewards.GetLow64());
 
@@ -219,6 +265,8 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
     value.second.total_new_outputs_ex_coinbase_amount = m_total_new_outputs_ex_coinbase_amount;
     value.second.total_coinbase_amount = m_total_coinbase_amount;
     value.second.total_deposit_amount = m_total_deposit_amount;
+    value.second.total_withdrawal_amount = m_total_withdrawal_amount;
+    value.second.withdrawal_state = m_withdrawal_state;
     value.second.total_unspendables_genesis_block = m_total_unspendables_genesis_block;
     value.second.total_unspendables_bip30 = m_total_unspendables_bip30;
     value.second.total_unspendables_scripts = m_total_unspendables_scripts;
@@ -275,6 +323,7 @@ std::optional<CCoinsStats> CoinStatsIndex::LookUpStats(const CBlockIndex& block_
     stats.total_new_outputs_ex_coinbase_amount = entry.total_new_outputs_ex_coinbase_amount;
     stats.total_coinbase_amount = entry.total_coinbase_amount;
     stats.total_deposit_amount = entry.total_deposit_amount;
+    stats.total_withdrawal_amount = entry.total_withdrawal_amount;
     stats.total_unspendables_genesis_block = entry.total_unspendables_genesis_block;
     stats.total_unspendables_bip30 = entry.total_unspendables_bip30;
     stats.total_unspendables_scripts = entry.total_unspendables_scripts;
@@ -320,6 +369,8 @@ bool CoinStatsIndex::CustomInit(const std::optional<interfaces::BlockRef>& block
         m_total_new_outputs_ex_coinbase_amount = entry.total_new_outputs_ex_coinbase_amount;
         m_total_coinbase_amount = entry.total_coinbase_amount;
         m_total_deposit_amount = entry.total_deposit_amount;
+        m_total_withdrawal_amount = entry.total_withdrawal_amount;
+        m_withdrawal_state = entry.withdrawal_state;
         m_total_unspendables_genesis_block = entry.total_unspendables_genesis_block;
         m_total_unspendables_bip30 = entry.total_unspendables_bip30;
         m_total_unspendables_scripts = entry.total_unspendables_scripts;
@@ -401,6 +452,7 @@ bool CoinStatsIndex::RevertBlock(const interfaces::BlockInfo& block)
             }
             continue;
         }
+        if (tx->IsBundleOutcome()) continue;
 
         // The coinbase tx has no undo data since no former output is spent
         if (!is_coinbase) {
@@ -410,6 +462,25 @@ bool CoinStatsIndex::RevertBlock(const interfaces::BlockInfo& block)
                 const Coin& coin{tx_undo.vprevout[j]};
                 const COutPoint outpoint{tx->vin[j].prevout.hash, tx->vin[j].prevout.n};
                 ApplyCoinHash(m_muhash, outpoint, coin);
+            }
+        }
+    }
+
+    // The block's withdrawals, from the state before it
+    if (block.height > 0) {
+        const drivechain::WithdrawalState& before{read_out.second.withdrawal_state};
+        drivechain::WithdrawalState state{before};
+        const auto changes{drivechain::BlockWithdrawalChanges(*block.data, block.height, block.hash, state,
+                                                              drivechain::UndoEntryLookup(*block.data, *block.undo_data, before))};
+        if (!changes) {
+            LogError("withdrawal state of block %s inconsistent", block.hash.ToString());
+            return false;
+        }
+        for (auto it{changes->rbegin()}; it != changes->rend(); ++it) {
+            if (it->added) {
+                RemoveCoinHash(m_muhash, it->outpoint, it->coin);
+            } else {
+                ApplyCoinHash(m_muhash, it->outpoint, it->coin);
             }
         }
     }
@@ -428,6 +499,8 @@ bool CoinStatsIndex::RevertBlock(const interfaces::BlockInfo& block)
     m_total_new_outputs_ex_coinbase_amount = read_out.second.total_new_outputs_ex_coinbase_amount;
     m_total_coinbase_amount = read_out.second.total_coinbase_amount;
     m_total_deposit_amount = read_out.second.total_deposit_amount;
+    m_total_withdrawal_amount = read_out.second.total_withdrawal_amount;
+    m_withdrawal_state = read_out.second.withdrawal_state;
     m_total_unspendables_genesis_block = read_out.second.total_unspendables_genesis_block;
     m_total_unspendables_bip30 = read_out.second.total_unspendables_bip30;
     m_total_unspendables_scripts = read_out.second.total_unspendables_scripts;

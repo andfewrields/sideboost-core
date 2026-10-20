@@ -7,6 +7,7 @@
 #include <compat/compat.h>
 #include <netaddress.h>
 #include <netbase.h>
+#include <streams.h>
 #include <tinyformat.h>
 #include <univalue.h>
 #include <util/sock.h>
@@ -72,12 +73,12 @@ ParentHeader ParseHeader(const UniValue& info)
     return {HashField(info, "blockHash"), HashField(info, "prevBlockHash"), static_cast<int>(U64Field(info, "height"))};
 }
 
-/** The treasury events in a block: deposits, and withdrawals that succeeded.  */
-std::vector<TreasuryEvent> ParseEvents(const UniValue& block_info, const ParentHeader& header)
+/** The events in a block: deposits and withdrawals (treasury events), and
+ *  withdrawal bundle events.  */
+void ParseEvents(const UniValue& block_info, const ParentHeader& header, ParentEvents& res)
 {
-    std::vector<TreasuryEvent> res;
     const UniValue& events{Field(block_info, "events")};
-    if (events.isNull()) return res;
+    if (events.isNull()) return;
     if (!events.isArray()) throw DepositSourceError("enforcer reply: bad events");
     for (const UniValue& event : events.getValues()) {
         if (const UniValue& deposit{Field(event, "deposit")}; !deposit.isNull()) {
@@ -87,19 +88,32 @@ std::vector<TreasuryEvent> ParseEvents(const UniValue& block_info, const ParentH
             const uint64_t value{U64Field(output, "valueSats")};
             if (!address || value > uint64_t(MAX_MONEY)) throw DepositSourceError("enforcer reply: bad deposit");
             const uint64_t sequence{U64Field(deposit, "sequenceNumber")};
-            res.push_back({sequence, header.hash, header.height, Deposit{
+            res.treasury.push_back({sequence, header.hash, header.height, Deposit{
                 .sequence = sequence,
                 .outpoint = COutPoint{Txid::FromUint256(HashField(outpoint, "txid")), static_cast<uint32_t>(U64Field(outpoint, "vout"))},
                 .address = std::move(*address),
                 .value = static_cast<CAmount>(value),
             }});
         } else if (const UniValue& withdrawal{Field(event, "withdrawalBundle")}; !withdrawal.isNull()) {
-            const UniValue& succeeded{Field(Field(withdrawal, "event"), "succeeded")};
-            if (succeeded.isNull()) continue;
-            res.push_back({U64Field(succeeded, "sequenceNumber"), header.hash, header.height, std::nullopt});
+            // The M6ID in consensus (txid byte) order
+            const auto m6id{TryParseHex<unsigned char>(Field(Field(withdrawal, "m6id"), "hex").getValStr())};
+            if (!m6id || m6id->size() != uint256::size()) throw DepositSourceError("enforcer reply: bad m6id");
+            BundleEvent bundle_event{.m6id = uint256{*m6id}, .block_hash = header.hash, .height = header.height};
+            const UniValue& kind{Field(withdrawal, "event")};
+            if (const UniValue& succeeded{Field(kind, "succeeded")}; !succeeded.isNull()) {
+                // A treasury event too
+                res.treasury.push_back({U64Field(succeeded, "sequenceNumber"), header.hash, header.height, std::nullopt});
+                bundle_event.kind = BundleEvent::Kind::SUCCEEDED;
+            } else if (!Field(kind, "failed").isNull()) {
+                bundle_event.kind = BundleEvent::Kind::FAILED;
+            } else if (!Field(kind, "submitted").isNull()) {
+                bundle_event.kind = BundleEvent::Kind::SUBMITTED;
+            } else {
+                throw DepositSourceError("enforcer reply: bad withdrawal bundle event");
+            }
+            res.bundles.push_back(bundle_event);
         }
     }
-    return res;
 }
 
 } // namespace
@@ -191,23 +205,33 @@ std::vector<ParentHeader> EnforcerClient::GetHeaders(const uint256& hash, uint32
     return res;
 }
 
-std::vector<TreasuryEvent> EnforcerClient::GetTreasuryEvents(uint8_t slot, const std::optional<uint256>& start, const uint256& end)
+ParentEvents EnforcerClient::GetEvents(uint8_t slot, const std::optional<uint256>& start, const uint256& end)
 {
     UniValue request{UniValue::VOBJ};
     request.pushKV("sidechainId", slot);
     if (start) request.pushKV("startBlockHash", HashArg(*start));
     request.pushKV("endBlockHash", HashArg(end));
     const UniValue reply{Call("ValidatorService/GetTwoWayPegData", request)};
-    std::vector<TreasuryEvent> res;
+    ParentEvents res;
     const UniValue& blocks{Field(reply, "blocks")};
     if (blocks.isNull()) return res;
     if (!blocks.isArray()) throw DepositSourceError("enforcer reply: bad blocks");
     for (const UniValue& block : blocks.getValues()) {
-        for (TreasuryEvent& event : ParseEvents(Field(block, "blockInfo"), ParseHeader(Field(block, "blockHeaderInfo")))) {
-            res.push_back(std::move(event));
-        }
+        ParseEvents(Field(block, "blockInfo"), ParseHeader(Field(block, "blockHeaderInfo")), res);
     }
     return res;
+}
+
+void EnforcerClient::ProposeWithdrawalBundle(uint8_t slot, const CTransaction& blinded_m6)
+{
+    // A zero-input transaction, which the enforcer reads in Core's legacy
+    // serialization (there is no witness)
+    DataStream tx_bytes;
+    tx_bytes << TX_NO_WITNESS(blinded_m6);
+    UniValue request{UniValue::VOBJ};
+    request.pushKV("sidechainId", slot);
+    request.pushKV("transaction", EncodeBase64(tx_bytes));
+    Call("BlockProducerService/ProposeWithdrawalBundle", request);
 }
 
 } // namespace drivechain
