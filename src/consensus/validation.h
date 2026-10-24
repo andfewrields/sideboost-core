@@ -70,7 +70,9 @@ enum class BlockValidationResult {
     BLOCK_MISSING_PREV,      //!< We don't have the previous block the checked one is built on
     BLOCK_INVALID_PREV,      //!< A block this one builds on is invalid
     BLOCK_TIME_FUTURE,       //!< block timestamp was > 2 hours in the future (or our clock is bad)
-    BLOCK_HEADER_LOW_WORK    //!< the block header may be on a too-little-work chain
+    BLOCK_HEADER_LOW_WORK,   //!< the block header may be on a too-little-work chain
+    BLOCK_PARENT_CHAIN,      //!< invalid in the node's view of the parent chain (or descends from such a block), which can
+                             //!< change: not the sender's fault, as its view may differ (see BLOCK_FAILED_PARENT_CHAIN)
 };
 
 

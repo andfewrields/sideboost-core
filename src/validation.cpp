@@ -2401,12 +2401,13 @@ script_verify_flags GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
 
 
 /** Check a block's deposits (BIP300 M5, see drivechain/deposit.h) against the
- *  node's view of the parent chain.  A view that can't tell yet (unreachable,
- *  behind, too few confirmations) is an error, not a verdict on the block.
- *  `parent_dependent` tells whether a failure is down to the view, which a
- *  parent chain reorg can change.  */
+ *  node's view of the parent chain.  Failures down to the view, which the
+ *  parent chain can change, are BLOCK_PARENT_CHAIN: a deposit the view doesn't
+ *  know or has too few confirmations of, as much as one it knows otherwise.
+ *  A view that can't answer (the enforcer is unreachable) is an error, not a
+ *  verdict on the block.  */
 static bool CheckDeposits(const CBlock& block, const CCoinsViewCache& view, drivechain::ParentChainView* parent,
-                          BlockValidationState& state, bool& parent_dependent)
+                          BlockValidationState& state)
 {
     using drivechain::DepositStatus;
     if (block.vtx.size() < 2 || !block.vtx[1]->IsDeposit()) return true;
@@ -2431,11 +2432,7 @@ static bool CheckDeposits(const CBlock& block, const CCoinsViewCache& view, driv
         }
         // No deposit may be skipped
         if (const auto skipped{parent->NextDeposit(next)}; skipped && skipped->first.sequence < *sequence) {
-            if (!skipped->second) {
-                return state.Error(strprintf("deposit %d is not confirmed yet in our view of the parent chain", skipped->first.sequence));
-            }
-            parent_dependent = true;
-            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-skipped",
+            return state.Invalid(BlockValidationResult::BLOCK_PARENT_CHAIN, "bad-deposit-skipped",
                                  strprintf("deposit %s is number %d, but skips deposit %d", tx.GetHash().ToString(), *sequence, skipped->first.sequence));
         }
         switch (parent->CheckDeposit(tx)) {
@@ -2443,11 +2440,11 @@ static bool CheckDeposits(const CBlock& block, const CCoinsViewCache& view, driv
             break;
         case DepositStatus::UNKNOWN:
         case DepositStatus::TOO_SHALLOW:
-            return state.Error(strprintf("deposit %s (number %d) is not (yet) confirmed in our view of the parent chain",
-                                         tx.GetHash().ToString(), *sequence));
+            return state.Invalid(BlockValidationResult::BLOCK_PARENT_CHAIN, "bad-deposit-unconfirmed",
+                                 strprintf("deposit %s (number %d) is not (yet) confirmed in our view of the parent chain",
+                                           tx.GetHash().ToString(), *sequence));
         case DepositStatus::MISMATCH:
-            parent_dependent = true;
-            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-deposit-mismatch",
+            return state.Invalid(BlockValidationResult::BLOCK_PARENT_CHAIN, "bad-deposit-mismatch",
                                  strprintf("deposit %s does not match the parent chain's number %d", tx.GetHash().ToString(), *sequence));
         }
         next = *sequence + 1;
@@ -2457,9 +2454,9 @@ static bool CheckDeposits(const CBlock& block, const CCoinsViewCache& view, driv
 
 /** Check a block's bundle outcome (see drivechain/withdrawal.h): it must be
  *  that of the pending bundle, as the node's view of the parent chain has it.
- *  As in CheckDeposits, a view that can't tell yet is an error.  */
+ *  Failures down to the view are BLOCK_PARENT_CHAIN, as in CheckDeposits.  */
 static bool CheckBundleOutcome(const CBlock& block, const CCoinsViewCache& view, drivechain::ParentChainView* parent,
-                               BlockValidationState& state, bool& parent_dependent)
+                               BlockValidationState& state)
 {
     using drivechain::DepositStatus;
     const auto index{drivechain::BundleOutcomeIndex(block)};
@@ -2486,10 +2483,10 @@ static bool CheckBundleOutcome(const CBlock& block, const CCoinsViewCache& view,
         break;
     case DepositStatus::UNKNOWN:
     case DepositStatus::TOO_SHALLOW:
-        return state.Error(strprintf("the outcome of bundle %s is not (yet) confirmed in our view of the parent chain", recorded->first.ToString()));
+        return state.Invalid(BlockValidationResult::BLOCK_PARENT_CHAIN, "bad-bundle-outcome-unconfirmed",
+                             strprintf("the outcome of bundle %s is not (yet) confirmed in our view of the parent chain", recorded->first.ToString()));
     case DepositStatus::MISMATCH:
-        parent_dependent = true;
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-bundle-outcome-mismatch",
+        return state.Invalid(BlockValidationResult::BLOCK_PARENT_CHAIN, "bad-bundle-outcome-mismatch",
                              strprintf("bundle %s did not end that way in the parent chain", recorded->first.ToString()));
     }
     return true;
@@ -2714,17 +2711,17 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     if (const auto* const parent{m_chainman.m_options.parent_chain}) {
         if (const auto checkpoint{parent->Checkpoint()}; drivechain::ViolatesCheckpoint(*pindex, checkpoint)) {
             if (!fJustCheck) SetParentChainFailure(*pindex, true);
-            state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-parent-checkpoint",
+            state.Invalid(BlockValidationResult::BLOCK_PARENT_CHAIN, "bad-parent-checkpoint",
                           strprintf("the parent chain paid out a bundle from block %s at height %d", checkpoint->block_hash.ToString(), checkpoint->height));
             LogInfo("Block validation error: %s", state.ToString());
             return false;
         }
     }
 
-    if (bool parent_dependent{false}; !CheckDeposits(block, view, m_chainman.m_options.parent_chain, state, parent_dependent) ||
-                                      !CheckBundleOutcome(block, view, m_chainman.m_options.parent_chain, state, parent_dependent)) {
+    if (!CheckDeposits(block, view, m_chainman.m_options.parent_chain, state) ||
+        !CheckBundleOutcome(block, view, m_chainman.m_options.parent_chain, state)) {
         // Checked again when the parent chain changes
-        if (parent_dependent && !fJustCheck) SetParentChainFailure(*pindex, true);
+        if (state.GetResult() == BlockValidationResult::BLOCK_PARENT_CHAIN && !fJustCheck) SetParentChainFailure(*pindex, true);
         LogInfo("Block validation error: %s", state.ToString());
         return false;
     }
@@ -4486,6 +4483,17 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
     return true;
 }
 
+/** Whether `index`, marked invalid, is so because of the node's view of the
+ *  parent chain: it is, or descends from, a block found invalid in it
+ *  (BLOCK_FAILED_PARENT_CHAIN), which that view changing can make valid.  */
+static bool FailedOnParentChain(const CBlockIndex* index)
+{
+    for (; index && (index->nStatus & BLOCK_FAILED_VALID); index = index->pprev) {
+        if (index->nStatus & BLOCK_FAILED_PARENT_CHAIN) return true;
+    }
+    return false;
+}
+
 bool ChainstateManager::AcceptBlockHeader(const CBlockHeader& block, BlockValidationState& state, CBlockIndex** ppindex, bool min_pow_checked)
 {
     AssertLockHeld(cs_main);
@@ -4501,7 +4509,7 @@ bool ChainstateManager::AcceptBlockHeader(const CBlockHeader& block, BlockValida
                 *ppindex = pindex;
             if (pindex->nStatus & BLOCK_FAILED_VALID) {
                 LogDebug(BCLog::VALIDATION, "%s: block %s is marked invalid\n", __func__, hash.ToString());
-                return state.Invalid(BlockValidationResult::BLOCK_CACHED_INVALID, "duplicate-invalid",
+                return state.Invalid(FailedOnParentChain(pindex) ? BlockValidationResult::BLOCK_PARENT_CHAIN : BlockValidationResult::BLOCK_CACHED_INVALID, "duplicate-invalid",
                                      strprintf("block %s was previously marked invalid", hash.ToString()));
             }
             return true;
@@ -4522,7 +4530,7 @@ bool ChainstateManager::AcceptBlockHeader(const CBlockHeader& block, BlockValida
         pindexPrev = &((*mi).second);
         if (pindexPrev->nStatus & BLOCK_FAILED_VALID) {
             LogDebug(BCLog::VALIDATION, "header %s has prev block invalid: %s\n", hash.ToString(), block.hashPrevBlock.ToString());
-            return state.Invalid(BlockValidationResult::BLOCK_INVALID_PREV, "bad-prevblk");
+            return state.Invalid(FailedOnParentChain(pindexPrev) ? BlockValidationResult::BLOCK_PARENT_CHAIN : BlockValidationResult::BLOCK_INVALID_PREV, "bad-prevblk");
         }
         if (!ContextualCheckBlockHeader(block, state, *this, pindexPrev)) {
             LogDebug(BCLog::VALIDATION, "%s: Consensus::ContextualCheckBlockHeader: %s, %s\n", __func__, hash.ToString(), state.ToString());

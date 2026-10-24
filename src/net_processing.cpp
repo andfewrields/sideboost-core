@@ -2070,6 +2070,10 @@ void PeerManagerImpl::MaybePunishNodeForBlock(NodeId nodeid, const BlockValidati
         return;
     case BlockValidationResult::BLOCK_TIME_FUTURE:
         break;
+    // Invalid only in our view of the parent chain, which may be behind or
+    // ahead of the peer's.  Such blocks take as much work as valid ones.
+    case BlockValidationResult::BLOCK_PARENT_CHAIN:
+        break;
     }
     if (message != "") {
         LogDebug(BCLog::NET, "peer=%d: %s\n", nodeid, message);

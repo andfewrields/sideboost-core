@@ -989,6 +989,7 @@ btck_BlockValidationResult btck_block_validation_state_get_block_validation_resu
     case BlockValidationResult::BLOCK_RESULT_UNSET:
         return btck_BlockValidationResult_UNSET;
     case BlockValidationResult::BLOCK_CONSENSUS:
+    case BlockValidationResult::BLOCK_PARENT_CHAIN:
         return btck_BlockValidationResult_CONSENSUS;
     case BlockValidationResult::BLOCK_CACHED_INVALID:
         return btck_BlockValidationResult_CACHED_INVALID;

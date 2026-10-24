@@ -176,11 +176,9 @@ class WithdrawalsTest(ParentChainTest, BitcoinTestFramework):
         _, res = self.submit(node0, [self.outcome_tx(bundle2["m6id"], False)])
         assert_equal(res, "bad-bundle-outcome-bundle")
         tip = node0.getbestblockhash()
-        assert_raises_rpc_error(-25, "not (yet) confirmed", self.submit, node0, [self.outcome_tx(bundle3["m6id"], True)])
-        stuck = [t for t in node0.getchaintips() if t["status"] == "valid-headers"]
-        assert_equal(len(stuck), 1)
+        _, res = self.submit(node0, [self.outcome_tx(bundle3["m6id"], True)])
+        assert_equal(res, "bad-bundle-outcome-unconfirmed")
         assert_equal(node0.getbestblockhash(), tip)
-        node0.invalidateblock(stuck[0]["hash"])
 
         self.log.info("Voted for, the new bundle is paid out")
         self.set_bundle_policy("KNOWN")

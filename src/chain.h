@@ -91,7 +91,8 @@ enum BlockStatus : uint32_t {
                                       //!< ancestors before they were validated, and unset when they were validated.
 
     //! Set (with BLOCK_FAILED_VALID) on a block found invalid because of the
-    //! node's view of the parent chain (its deposits): checked again when that
+    //! node's view of the parent chain (deposits or a bundle outcome it doesn't
+    //! have, or not yet confirmed; the checkpoint): checked again when that
     //! view changes, and made valid again if it now agrees.
     BLOCK_FAILED_PARENT_CHAIN =  512,
 };

@@ -13,11 +13,13 @@ wrongly, and roll them back on a reorg of either chain.
 
 from decimal import Decimal
 
-from test_framework.messages import COIN, SEQUENCE_FINAL, COutPoint, CTransaction, CTxIn, CTxOut
+from test_framework.blocktools import NORMAL_GBT_REQUEST_PARAMS
+from test_framework.messages import COIN, SEQUENCE_FINAL, COutPoint, CTransaction, CTxIn, CTxOut, msg_block
+from test_framework.p2p import P2PInterface
 from test_framework.parentchain import ParentChainTest
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.script import CScript, OP_RETURN, OP_TRUE
-from test_framework.util import assert_equal, assert_raises_rpc_error
+from test_framework.util import assert_equal
 
 
 class DepositsTest(ParentChainTest, BitcoinTestFramework):
@@ -106,14 +108,25 @@ class DepositsTest(ParentChainTest, BitcoinTestFramework):
         _, res = self.submit(node0, [ordinary, good4])
         assert_equal(res, "bad-txns-deposit-position")
 
-        self.log.info("A deposit our parent chain view doesn't know waits instead of failing")
+        self.log.info("A deposit our parent chain view doesn't know makes a block invalid, for as long as it doesn't")
         unknown = self.deposit_tx("11" * 32, 6, value4, script4)
         tip = node0.getbestblockhash()
-        assert_raises_rpc_error(-25, "not (yet) confirmed", self.submit, node0, [good4, good5, unknown])
-        stuck = [t for t in node0.getchaintips() if t["status"] == "valid-headers"]
-        assert_equal(len(stuck), 1)
+        _, res = self.submit(node0, [good4, good5, unknown])
+        assert_equal(res, "bad-deposit-unconfirmed")
         assert_equal(node0.getbestblockhash(), tip)
-        node0.invalidateblock(stuck[0]["hash"])
+
+        self.log.info("Peers aren't punished for blocks invalid only in our view of the parent chain")
+        peer = node0.add_p2p_connection(P2PInterface())
+        unknown_block = self.make_block(node0, [good4, good5, self.deposit_tx("22" * 32, 6, value4, script4)])
+        peer.send_and_ping(msg_block(unknown_block))
+        assert_equal(self.status(node0, unknown_block.hash_hex), "invalid")
+        # Nor for blocks on top of such blocks
+        on_top = self.make_block(node0, [], prev=unknown_block.hash_hex)
+        peer.send_and_ping(msg_block(on_top))
+        assert_equal(node0.getbestblockhash(), tip)
+        # Unlike for blocks invalid whatever the parent chain
+        peer.send_without_ping(msg_block(self.make_block(node0, [ordinary, good4])))
+        peer.wait_for_disconnect()
 
         self.log.info("Correct blocks are accepted, by both nodes")
         _, res = self.submit(node0, [good4, good5])
@@ -130,6 +143,21 @@ class DepositsTest(ParentChainTest, BitcoinTestFramework):
         self.sync_blocks()
         assert_equal(node1.getreceivedbyaddress(addr1), Decimal("0.25"))
         assert_equal(node0.getreceivedbyaddress(addr0), Decimal("1.6"))
+
+        self.log.info("So does one with too few confirmations; the node mines on, and takes the block once it has them")
+        addr9 = node0.getnewaddress()
+        txid9 = self.deposit(addr9, Decimal("0.09"))
+        self.ecx_mine()
+        tip = node0.getbestblockhash()
+        early, res = self.submit(node0, [self.deposit_tx(txid9, 6, int(Decimal("0.09") * COIN), bytes.fromhex(node0.getaddressinfo(addr9)["scriptPubKey"]))])
+        assert_equal(res, "bad-deposit-unconfirmed")
+        assert_equal(self.status(node0, early.hash_hex), "invalid")
+        assert_equal(node0.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)["previousblockhash"], tip)
+        self.confirm()
+        self.sync_parent_chain()
+        self.wait_until(lambda: node0.getbestblockhash() == early.hash_hex)
+        self.sync_blocks()
+        assert_equal(node1.getbestblockhash(), early.hash_hex)
 
         self.log.info("The deposit state survives a restart")
         self.restart_node(0, extra_args=self.extra_args[0])

@@ -133,11 +133,17 @@ class ParentChainTest:
         super().stop_nodes(wait)
         self.stop_parent_chain()
 
-    def submit(self, node, txs):
-        tip = node.getbestblockhash()
-        height = node.getblockcount() + 1
-        block = create_block(int(tip, 16), create_coinbase(height, nValue=0), txlist=txs)
+    @staticmethod
+    def make_block(node, txs, prev=None):
+        """A block with `txs` on `prev` (default: the tip)."""
+        prev = prev or node.getbestblockhash()
+        height = node.getblockheader(prev)["height"] + 1
+        block = create_block(int(prev, 16), create_coinbase(height, nValue=0), txlist=txs)
         block.solve()
+        return block
+
+    def submit(self, node, txs):
+        block = self.make_block(node, txs)
         return block, node.submitblock(block.serialize().hex())
 
     def confirm(self):
