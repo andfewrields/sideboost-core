@@ -27,10 +27,15 @@ class CScript;
 
 /** Default for -blockmaxweight, which controls the range of block weights the mining code will create **/
 inline constexpr unsigned int DEFAULT_BLOCK_MAX_WEIGHT{MAX_BLOCK_WEIGHT};
-/** Default for -blockreservedweight **/
+/** Default for -blockreservedweight.  On SideBoost it also covers the AuxPoW
+ *  (the parent chain's coinbase and Merkle branches), which the block header
+ *  carries and so counts toward block weight: typically 4,000-5,000 WU, more
+ *  for a large parent chain coinbase. **/
 inline constexpr unsigned int DEFAULT_BLOCK_RESERVED_WEIGHT{8000};
-/** Default sigops cost to reserve for coinbase transaction outputs when creating block templates. */
-inline constexpr unsigned int DEFAULT_COINBASE_OUTPUT_MAX_ADDITIONAL_SIGOPS{400};
+/** Default sigops cost to reserve for coinbase transaction outputs when creating block templates:
+ *  ten legacy outputs' worth (SideBoost: 3% of a block's 1,332; Bitcoin reserves 400, 0.5% of its
+ *  blocks).  SideBoost coinbases pay no subsidy, and the AuxPoW doesn't count toward sigops. */
+inline constexpr unsigned int DEFAULT_COINBASE_OUTPUT_MAX_ADDITIONAL_SIGOPS{40};
 /** This accounts for the block header, var_int encoding of the transaction count and a minimally viable
  * coinbase transaction. It adds an additional safety margin, because even with a thorough understanding
  * of block serialization, it's easy to make a costly mistake when trying to squeeze every last byte.

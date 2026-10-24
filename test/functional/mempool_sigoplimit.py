@@ -267,7 +267,7 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         # SideBoost: test_legacy_sigops_stdness can't apply. BIP54's limit of
         # 2,500 legacy sigops per transaction is far above SideBoost's block
         # limit (1,332 sigops cost = 333 legacy sigops) and max standard tx
-        # sigops cost (931), so such a transaction is rejected long before it,
+        # sigops cost (1,291), so such a transaction is rejected long before it,
         # and could never be mined.
 
 

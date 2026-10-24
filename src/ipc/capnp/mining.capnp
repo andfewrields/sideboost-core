@@ -15,7 +15,7 @@ $Proxy.includeTypes("ipc/capnp/mining-types.h");
 const maxMoney :Int64 = 2100000000000000;
 const maxDouble :Float64 = 1.7976931348623157e308;
 const defaultBlockReservedWeight :UInt32 = 8000;
-const defaultCoinbaseOutputMaxAdditionalSigops :UInt32 = 400;
+const defaultCoinbaseOutputMaxAdditionalSigops :UInt32 = 40;
 
 interface Mining $Proxy.wrap("interfaces::Mining") {
     isTestChain @0 (context :Proxy.Context) -> (result: Bool);
