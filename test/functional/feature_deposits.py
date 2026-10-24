@@ -159,8 +159,9 @@ class DepositsTest(ParentChainTest, BitcoinTestFramework):
         self.sync_blocks()
         assert_equal(node1.getbestblockhash(), early.hash_hex)
 
-        self.log.info("The deposit state survives a restart")
-        self.restart_node(0, extra_args=self.extra_args[0])
+        self.log.info("The deposit state survives a restart, and so does the view of the parent chain")
+        with node0.assert_debug_log([f"Loaded the parent chain view at tip {self.ecx.getbestblockhash()}"]):
+            self.restart_node(0, extra_args=self.extra_args[0])
         self.connect_nodes(0, 1)
         txid6 = self.deposit(addr0, Decimal("0.01"))
         self.ecx_mine()

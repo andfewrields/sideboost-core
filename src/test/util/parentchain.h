@@ -36,6 +36,8 @@ public:
     std::set<uint256> acks;
     /** How often it was asked for them.  */
     int ack_queries{0};
+    /** Where each GetEvents started (nullopt: genesis).  */
+    std::vector<std::optional<uint256>> event_starts;
     FastRandomContext& rng;
 
     explicit FakeParentChain(FastRandomContext& rng_in) : rng{rng_in}
@@ -77,6 +79,7 @@ public:
 
     drivechain::ParentEvents GetEvents(uint8_t, const std::optional<uint256>& start, const uint256& end) override
     {
+        event_starts.push_back(start);
         std::vector<const Block*> range;
         for (auto it{blocks.find(end)}; it != blocks.end() && it->first != start; it = blocks.find(it->second.header.prev)) {
             range.push_back(&it->second);

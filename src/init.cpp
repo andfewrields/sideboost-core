@@ -350,6 +350,7 @@ void Shutdown(NodeContext& node)
     if (node.background_init_thread.joinable()) node.background_init_thread.join();
     // Before the scheduler, which runs the validation callbacks it may wait for
     node.parent_chain_sync.reset();
+    if (node.parent_chain) node.parent_chain->Save();
     // After everything has been shut down, but before things get flushed, stop the
     // the scheduler. After this point, SyncWithValidationInterfaceQueue() should not be called anymore
     // as this would prevent the shutdown from completing.
@@ -1429,7 +1430,8 @@ static ChainstateLoadResult InitAndLoadChainstate(
             node.deposit_source = std::make_unique<drivechain::EnforcerClient>(host, port, drivechain::ENFORCER_TIMEOUT);
             node.parent_chain = std::make_unique<drivechain::ParentChainView>(
                 *node.deposit_source, *chainparams.GetConsensus().deposit_slot, chainparams.GetConsensus().nDepositMinDepth,
-                args.GetBoolArg("-bundlevotes", drivechain::DEFAULT_BUNDLE_VOTES));
+                args.GetBoolArg("-bundlevotes", drivechain::DEFAULT_BUNDLE_VOTES), args.GetDataDirNet() / "parentchain.dat");
+            node.parent_chain->Load();
         }
         chainman_opts.parent_chain = node.parent_chain.get();
     }

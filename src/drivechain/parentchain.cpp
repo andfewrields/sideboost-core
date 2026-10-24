@@ -6,13 +6,16 @@
 
 #include <chain.h>
 #include <consensus/validation.h>
+#include <hash.h>
 #include <kernel/chainparams.h>
 #include <kernel/notifications_interface.h>
 #include <logging.h>
 #include <node/blockstorage.h>
 #include <primitives/block.h>
+#include <streams.h>
 #include <undo.h>
 #include <util/check.h>
+#include <util/fs_helpers.h>
 #include <util/string.h>
 #include <util/thread.h>
 #include <util/translation.h>
@@ -34,16 +37,160 @@ constexpr int HEADER_WINDOW{1000};
 // chain runs at half speed
 static_assert(2 * DEPOSIT_FINALITY_DEPTH * PARENT_CHAIN_BLOCK_SPACING <= MIN_TIME_TO_KEEP);
 
+/** The format of the view's file: the version, the slot, the view, then a
+ *  checksum (SHA256d) of it all.  */
+constexpr uint8_t VIEW_FILE_VERSION{1};
+
+template <typename Stream>
+void WriteHeader(Stream& s, const ParentHeader& header) { s << header.hash << header.prev << header.height; }
+
+template <typename Stream>
+ParentHeader ReadHeader(Stream& s)
+{
+    ParentHeader header;
+    s >> header.hash >> header.prev >> header.height;
+    return header;
+}
+
+template <typename Stream>
+void WriteEvent(Stream& s, const TreasuryEvent& event)
+{
+    s << event.sequence << event.block_hash << event.height << event.deposit.has_value();
+    if (event.deposit) s << event.deposit->sequence << event.deposit->outpoint << event.deposit->address << event.deposit->value;
+}
+
+template <typename Stream>
+TreasuryEvent ReadEvent(Stream& s)
+{
+    TreasuryEvent event;
+    bool deposit;
+    s >> event.sequence >> event.block_hash >> event.height >> deposit;
+    if (deposit) {
+        event.deposit.emplace();
+        s >> event.deposit->sequence >> event.deposit->outpoint >> event.deposit->address >> event.deposit->value;
+    }
+    return event;
+}
+
+template <typename Stream>
+void WriteBundleEvent(Stream& s, const BundleEvent& event)
+{
+    s << event.m6id << static_cast<uint8_t>(event.kind) << event.block_hash << event.height << event.commitment.has_value();
+    if (event.commitment) s << event.commitment->block_hash << event.commitment->height;
+}
+
+template <typename Stream>
+BundleEvent ReadBundleEvent(Stream& s)
+{
+    BundleEvent event;
+    uint8_t kind;
+    bool commitment;
+    s >> event.m6id >> kind >> event.block_hash >> event.height >> commitment;
+    if (kind > static_cast<uint8_t>(BundleEvent::Kind::FAILED)) throw std::ios_base::failure("bad bundle event kind");
+    event.kind = static_cast<BundleEvent::Kind>(kind);
+    if (commitment) {
+        event.commitment.emplace();
+        s >> event.commitment->block_hash >> event.commitment->height;
+    }
+    return event;
+}
+
 } // namespace
 
-ParentChainView::ParentChainView(DepositSource& source, uint8_t slot, int min_depth, bool manage_votes)
-    : m_source{source}, m_slot{slot}, m_min_depth{min_depth}, m_manage_votes{manage_votes} {}
+ParentChainView::ParentChainView(DepositSource& source, uint8_t slot, int min_depth, bool manage_votes, fs::path file)
+    : m_source{source}, m_slot{slot}, m_min_depth{min_depth}, m_manage_votes{manage_votes}, m_file{std::move(file)} {}
+
+bool ParentChainView::Load()
+{
+    if (m_file.empty()) return false;
+    AutoFile file{fsbridge::fopen(m_file, "rb")};
+    if (file.IsNull()) return false;
+    std::optional<ParentHeader> tip;
+    std::map<int, uint256> headers;
+    std::map<uint64_t, TreasuryEvent> events;
+    std::vector<BundleEvent> bundle_events;
+    try {
+        HashVerifier verifier{file};
+        uint8_t version, slot;
+        verifier >> version >> slot;
+        if (version != VIEW_FILE_VERSION || slot != m_slot) {
+            LogWarning("Not loading %s: it is for another version or slot", fs::PathToString(m_file));
+            return false;
+        }
+        tip = ReadHeader(verifier);
+        verifier >> headers;
+        uint64_t count;
+        verifier >> count;
+        for (uint64_t i{0}; i < count; ++i) {
+            TreasuryEvent event{ReadEvent(verifier)};
+            const uint64_t sequence{event.sequence};
+            events.emplace(sequence, std::move(event));
+        }
+        verifier >> count;
+        for (uint64_t i{0}; i < count; ++i) bundle_events.push_back(ReadBundleEvent(verifier));
+        uint256 checksum;
+        file >> checksum;
+        if (checksum != verifier.GetHash()) throw std::ios_base::failure("checksum mismatch");
+    } catch (const std::exception& e) {
+        LogWarning("Not loading %s: %s", fs::PathToString(m_file), e.what());
+        return false;
+    }
+    LOCK(m_mutex);
+    m_tip = tip;
+    m_headers = std::move(headers);
+    m_events = std::move(events);
+    m_bundle_events = std::move(bundle_events);
+    LogInfo("Loaded the parent chain view at tip %s (height %d) from %s", m_tip->hash.ToString(), m_tip->height, fs::PathToString(m_file));
+    return true;
+}
+
+bool ParentChainView::Save() const
+{
+    if (m_file.empty()) return true;
+    DataStream data;
+    {
+        LOCK(m_mutex);
+        if (!m_tip) return true;
+        data << VIEW_FILE_VERSION << m_slot;
+        WriteHeader(data, *m_tip);
+        data << m_headers << uint64_t{m_events.size()};
+        for (const auto& [_, event] : m_events) WriteEvent(data, event);
+        data << uint64_t{m_bundle_events.size()};
+        for (const BundleEvent& event : m_bundle_events) WriteBundleEvent(data, event);
+    }
+    HashWriter hasher;
+    hasher.write(std::span{data});
+    data << hasher.GetHash();
+
+    const fs::path tmp{m_file + ".new"};
+    AutoFile file{fsbridge::fopen(tmp, "wb")};
+    if (file.IsNull()) {
+        LogWarning("Can't write %s", fs::PathToString(tmp));
+        return false;
+    }
+    file.write(std::span{data});
+    if (!file.Commit() || file.fclose() != 0 || !RenameOver(tmp, m_file)) {
+        LogWarning("Can't write %s", fs::PathToString(m_file));
+        fs::remove(tmp);
+        return false;
+    }
+    return true;
+}
 
 void ParentChainView::Update()
 {
     LOCK(m_mutex);
     const ParentHeader tip{m_source.GetTip()};
-    if (m_tip && m_tip->hash == tip.hash) return;
+    if (m_tip && m_tip->hash == tip.hash) {
+        // From the view Load kept: check everything again, as the first
+        // Update does
+        if (!std::exchange(m_started, true)) {
+            m_tip_changed = true;
+            m_changed = 0;
+            m_bundles_changed = true;
+        }
+        return;
+    }
 
     // Walk the new best chain back to a block the view knows, collecting the
     // headers above it
@@ -105,7 +252,7 @@ void ParentChainView::Update()
     m_bundle_events.insert(m_bundle_events.end(), added.bundles.begin(), added.bundles.end());
     while (!m_headers.empty() && m_headers.begin()->first < tip.height - HEADER_WINDOW) m_headers.erase(m_headers.begin());
 
-    const bool first{!m_tip};
+    const bool first{!std::exchange(m_started, true)};
     m_tip = tip;
     m_tip_changed = true;
     m_proposed.reset();
@@ -436,6 +583,7 @@ void SyncWithParentChain(ChainstateManager& chainman)
     if (tip_changed) {
         LogDebug(BCLog::VALIDATION, "Following the parent chain to tip %s (deposits changed from: %s, bundle events changed: %s)",
                  Assert(parent->Tip())->hash.ToString(), changed ? util::ToString(*changed) : "none", bundles_changed ? "yes" : "no");
+        parent->Save();
     }
 
     if (tip_changed) {

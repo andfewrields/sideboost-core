@@ -8,6 +8,7 @@
 #include <drivechain/deposit.h>
 #include <drivechain/withdrawal.h>
 #include <sync.h>
+#include <util/fs.h>
 #include <uint256.h>
 
 #include <condition_variable>
@@ -155,12 +156,22 @@ enum class DepositStatus {
 class ParentChainView
 {
 public:
-    /** `manage_votes`: see VoteForBundle.  */
-    ParentChainView(DepositSource& source, uint8_t slot, int min_depth, bool manage_votes = false);
+    /** `manage_votes`: see VoteForBundle.  `file`: where Save keeps the view
+     *  for Load (none if empty).  */
+    ParentChainView(DepositSource& source, uint8_t slot, int min_depth, bool manage_votes = false, fs::path file = {});
 
     /** Catch up with the parent chain's best chain.  Throws
      *  DepositSourceError.  */
     void Update() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+    /** Start from the view Save kept, so that the first Update only catches
+     *  up from its tip, rather than loading all of the parent chain's events.
+     *  Returns false if there is none (or it is unreadable, or for another
+     *  slot): the first Update then loads them all.  Before any Update.  */
+    bool Load() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+    /** Keep the view in its file, for Load.  Returns false on failure.  */
+    bool Save() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
     /** The lowest sequence number whose event an Update changed or removed
      *  since the last call (0 after the first Update, so a starting node
@@ -229,8 +240,11 @@ private:
     const uint8_t m_slot;
     const int m_min_depth;
     const bool m_manage_votes;
+    const fs::path m_file;
 
     mutable Mutex m_mutex;
+    /** Whether an Update happened since the node started.  */
+    bool m_started GUARDED_BY(m_mutex){false};
     std::optional<ParentHeader> m_tip GUARDED_BY(m_mutex);
     /** The recent part of the best chain, by height.  */
     std::map<int, uint256> m_headers GUARDED_BY(m_mutex);

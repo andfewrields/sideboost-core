@@ -8,6 +8,7 @@
 #include <key.h>
 #include <key_io.h>
 #include <script/interpreter.h>
+#include <streams.h>
 #include <test/util/parentchain.h>
 #include <test/util/random.h>
 #include <test/util/setup_common.h>
@@ -167,6 +168,72 @@ BOOST_AUTO_TEST_CASE(parent_chain_view)
     BOOST_CHECK(!view.TakeChanges()); // nothing it had before is gone
     BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(d2)) == DepositStatus::MISMATCH);
     BOOST_CHECK(view.ConfirmedDeposits(2) == std::vector{other2});
+}
+
+BOOST_AUTO_TEST_CASE(parent_chain_view_file)
+{
+    FakeParentChain parent{m_rng};
+    const fs::path file{m_path_root / "parentchain.dat"};
+    const Deposit d0{RandomDeposit(m_rng, 0, "a")}, d2{RandomDeposit(m_rng, 2, "b")};
+    const BundleEvent submitted{.m6id = m_rng.rand256(), .kind = BundleEvent::Kind::SUBMITTED, .block_hash = {}, .height = 0, .commitment = std::nullopt};
+    const BundleEvent succeeded{.m6id = submitted.m6id, .kind = BundleEvent::Kind::SUCCEEDED, .block_hash = {}, .height = 0,
+                                .commitment = BundleCommitment{m_rng.rand256(), 7}};
+    parent.Mine({DepositEvent(d0), WithdrawalEvent(1)}, {}, {submitted});
+    parent.Mine({}, {}, {succeeded});
+    for (int i = 0; i < 3; ++i) parent.Mine();
+    {
+        ParentChainView view{parent, /*slot=*/83, /*min_depth=*/3, /*manage_votes=*/false, file};
+        BOOST_CHECK(!view.Load()); // no file yet
+        BOOST_CHECK(view.Save()); // nothing to save yet
+        BOOST_CHECK(!fs::exists(file));
+        view.Update();
+        BOOST_CHECK(view.Save());
+    }
+    BOOST_CHECK(parent.event_starts.back() == std::nullopt); // from genesis
+
+    // A view loaded from the file catches up from where it was
+    parent.Mine({DepositEvent(d2)});
+    ParentChainView view{parent, /*slot=*/83, /*min_depth=*/3, /*manage_votes=*/false, file};
+    BOOST_CHECK(view.Load());
+    view.Update();
+    BOOST_CHECK(parent.event_starts.back() == parent.blocks.at(parent.tip).header.prev);
+    // It checks everything again, as a first update does
+    BOOST_CHECK_EQUAL(view.TakeChanges().value_or(99), 0U);
+    BOOST_CHECK(view.TakeBundleChanges());
+    BOOST_CHECK(view.TakeTipChanged());
+    BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(d0)) == DepositStatus::OK);
+    BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(d2)) == DepositStatus::TOO_SHALLOW);
+    BOOST_CHECK_EQUAL(view.NextDeposit(1)->first.sequence, 2U); // the withdrawal is kept too
+    BOOST_CHECK(view.BundleOutcomeOf(submitted.m6id) == std::pair(BundleOutcome::SUCCEEDED, true));
+    BOOST_CHECK(view.Checkpoint() == succeeded.commitment);
+
+    // Loaded at the parent chain's tip, it still checks everything again
+    BOOST_CHECK(view.Save());
+    ParentChainView same{parent, /*slot=*/83, /*min_depth=*/3, /*manage_votes=*/false, file};
+    BOOST_CHECK(same.Load());
+    const size_t calls{parent.event_starts.size()};
+    same.Update();
+    BOOST_CHECK_EQUAL(parent.event_starts.size(), calls);
+    BOOST_CHECK_EQUAL(same.TakeChanges().value_or(99), 0U);
+    BOOST_CHECK(same.TakeTipChanged());
+
+    // Not a file for another slot, nor a damaged one
+    ParentChainView other{parent, /*slot=*/84, /*min_depth=*/3, /*manage_votes=*/false, file};
+    BOOST_CHECK(!other.Load());
+    std::vector<std::byte> bytes;
+    {
+        AutoFile in{fsbridge::fopen(file, "rb")};
+        bytes.resize(in.size());
+        in.read(bytes);
+    }
+    bytes[bytes.size() / 2] ^= std::byte{1};
+    {
+        AutoFile out{fsbridge::fopen(file, "wb")};
+        out.write(bytes);
+        BOOST_CHECK_EQUAL(out.fclose(), 0);
+    }
+    ParentChainView damaged{parent, /*slot=*/83, /*min_depth=*/3, /*manage_votes=*/false, file};
+    BOOST_CHECK(!damaged.Load());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
