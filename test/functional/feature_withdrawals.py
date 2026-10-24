@@ -197,8 +197,8 @@ class WithdrawalsTest(ParentChainTest, BitcoinTestFramework):
             assert_equal(node.getwithdrawals()["bundle"]["m6id"], bundle3["m6id"])
 
         self.log.info("When the parent chain has the payout again, the block is valid again")
-        self.ecx.invalidateblock(new_branch)
-        self.ecx.reconsiderblock(paid_in)
+        self.ecx_invalidate(new_branch)
+        self.ecx_reconsider(paid_in)
         self.wait_for_enforcer()
         self.sync_parent_chain()
         for node in self.nodes:

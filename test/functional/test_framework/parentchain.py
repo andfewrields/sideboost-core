@@ -7,6 +7,11 @@
 Runs an ECX regtest node and its bip300301_enforcer, given by the environment
 variables ECX_BITCOIND and BIP300301_ENFORCER (tests are skipped without
 them), and SideBoost nodes that take deposits from its slot 83.
+
+With LIGHT_NODE (the enforcer repository's `light-node`) set too, the second
+SideBoost node follows ECX through a light node instead, as a user without a
+full ECX node would: the light node follows the ECX node over P2P, and a
+second enforcer (which can't mine) runs against it.
 """
 
 import json
@@ -48,9 +53,11 @@ class ParentChainTest:
         enforcer_dir = os.path.join(self.options.tmpdir, "enforcer")
         os.makedirs(ecx_dir)
         os.makedirs(enforcer_dir)
+        self.light_node_bin = os.getenv("LIGHT_NODE")
+        listen = ["-listen=1", "-bind=127.0.0.1"] if self.light_node_bin else ["-listen=0"]
         self.ecx_proc = subprocess.Popen(
             [self.ecx_bitcoind, "-regtest", f"-datadir={ecx_dir}", f"-port={p2p_port(8)}", f"-rpcport={self.ecx_rpc_port}",
-             "-rpcuser=u", "-rpcpassword=p", "-server", "-rest", "-txindex", "-listen=0", "-listenonion=0",
+             "-rpcuser=u", "-rpcpassword=p", "-server", "-rest", "-txindex", *listen, "-listenonion=0",
              "-fallbackfee=0.0001", f"-zmqpubsequence=tcp://127.0.0.1:{zmq_port}"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         ecx_url = f"http://u:p@127.0.0.1:{self.ecx_rpc_port}"
@@ -67,9 +74,46 @@ class ParentChainTest:
              "--enable-mempool", "--enable-block-template-server", f"--coinbase-recipient={self.ecx.getnewaddress()}"],
             stdout=self.enforcer_log, stderr=subprocess.STDOUT)
         self.wait_until(lambda: self.try_call(lambda: self.enforcer("ValidatorService/GetChainTip")))
+        if self.light_node_bin:
+            self.start_light_node(enforcer_dir + "-light")
+
+    def start_light_node(self, enforcer_dir):
+        """Start a light node following the ECX node, and an enforcer
+        against it."""
+        light_rpc, light_zmq = rpc_port(9), rpc_port(10)
+        self.light_enforcer_port = rpc_port(11)
+        os.makedirs(enforcer_dir)
+        self.light_log = open(os.path.join(self.options.tmpdir, "light-node.log"), "w")
+        self.light_proc = subprocess.Popen(
+            [self.light_node_bin, "--network=regtest", "--network-magic=eca5b134", f"--genesis-hash={self.ecx.getblockhash(0)}",
+             f"--connect=127.0.0.1:{p2p_port(8)}", f"--rpc-addr=127.0.0.1:{light_rpc}", f"--zmq-addr=tcp://127.0.0.1:{light_zmq}"],
+            stdout=self.light_log, stderr=subprocess.STDOUT)
+        self.light_enforcer_log = open(os.path.join(self.options.tmpdir, "enforcer-light.log"), "w")
+        self.light_enforcer_proc = subprocess.Popen(
+            [self.enforcer_bin, f"--data-dir={enforcer_dir}",
+             f"--node-rpc-addr=127.0.0.1:{light_rpc}", "--node-rpc-user=u", "--node-rpc-pass=p",
+             f"--node-zmq-addr-sequence=tcp://127.0.0.1:{light_zmq}",
+             "--network-magic=eca5b134", "--op-drivechain=nop8",
+             f"--serve-grpc-addr=127.0.0.1:{self.light_enforcer_port}", f"--serve-rpc-addr=127.0.0.1:{rpc_port(12)}"],
+            stdout=self.light_enforcer_log, stderr=subprocess.STDOUT)
+        self.wait_until(lambda: self.try_call(lambda: self.enforcer("ValidatorService/GetChainTip", port=self.light_enforcer_port)))
+        self.light_node = AuthServiceProxy(f"http://u:p@127.0.0.1:{light_rpc}")
+
+    def ecx_invalidate(self, blockhash):
+        """Invalidate an ECX block, on the light node too: it follows the
+        most work, whatever its peers make of it."""
+        self.ecx.invalidateblock(blockhash)
+        if self.light_node_bin:
+            self.light_node.invalidateblock(blockhash)
+
+    def ecx_reconsider(self, blockhash):
+        self.ecx.reconsiderblock(blockhash)
+        if self.light_node_bin:
+            self.light_node.reconsiderblock(blockhash)
 
     def stop_parent_chain(self):
-        for proc in (getattr(self, "enforcer_proc", None), getattr(self, "ecx_proc", None)):
+        for proc in (getattr(self, "light_enforcer_proc", None), getattr(self, "light_proc", None),
+                     getattr(self, "enforcer_proc", None), getattr(self, "ecx_proc", None)):
             if proc and proc.poll() is None:
                 proc.terminate()
                 proc.wait(timeout=60)
@@ -82,8 +126,8 @@ class ParentChainTest:
         except (OSError, JSONRPCException):
             return False
 
-    def enforcer(self, method, request=None):
-        req = urllib.request.Request(f"http://127.0.0.1:{self.enforcer_port}/cusf.mainchain.v1.{method}",
+    def enforcer(self, method, request=None, port=None):
+        req = urllib.request.Request(f"http://127.0.0.1:{port or self.enforcer_port}/cusf.mainchain.v1.{method}",
                                      json.dumps(request or {}).encode(), {"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.load(resp)
@@ -126,7 +170,10 @@ class ParentChainTest:
         self.treasury = None
         self.start_parent_chain()
         args = [f"-depositslot={SLOT}", f"-enforcer=127.0.0.1:{self.enforcer_port}"]
-        self.extra_args = [args, args + ["-coinstatsindex"]][:self.num_nodes]
+        args1 = args
+        if self.light_node_bin:
+            args1 = [f"-depositslot={SLOT}", f"-enforcer=127.0.0.1:{self.light_enforcer_port}"]
+        self.extra_args = [args, args1 + ["-coinstatsindex"]][:self.num_nodes]
         for node_args, more in zip(self.extra_args, getattr(self, "more_args", [])):
             node_args += more
         super().setup_nodes()
@@ -158,7 +205,7 @@ class ParentChainTest:
         else.  Return the new branch's first block."""
         height = self.ecx.getblockheader(first_replaced)["height"]
         length = self.ecx.getblockcount() - height + 2
-        self.ecx.invalidateblock(first_replaced)
+        self.ecx_invalidate(first_replaced)
         address = self.ecx.getnewaddress()
         new_first = self.ecx.generateblock(address, txs)["hash"]
         for _ in range(length - 1):
@@ -168,10 +215,13 @@ class ParentChainTest:
 
     def wait_for_enforcer(self):
         tip = self.ecx.getbestblockhash()
-        self.wait_until(lambda: self.enforcer("ValidatorService/GetChainTip")["blockHeaderInfo"]["blockHash"]["hex"] == tip)
+        ports = [self.enforcer_port] + ([self.light_enforcer_port] if self.light_node_bin else [])
+        for port in ports:
+            self.wait_until(lambda: self.enforcer("ValidatorService/GetChainTip", port=port)["blockHeaderInfo"]["blockHash"]["hex"] == tip)
 
     def sync_parent_chain(self):
         """Have every node follow the parent chain to its current tip now."""
+        self.wait_for_enforcer()
         message = f"Following the parent chain to tip {self.ecx.getbestblockhash()}".encode()
         for node in self.nodes:
             node.mockscheduler(6)

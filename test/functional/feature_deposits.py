@@ -205,8 +205,8 @@ class DepositsTest(ParentChainTest, BitcoinTestFramework):
         assert_equal(self.status(node1, after8), "invalid")
 
         self.log.info("When the parent chain has the deposit again, the block is valid again")
-        self.ecx.invalidateblock(new_branch)
-        self.ecx.reconsiderblock(parent8)
+        self.ecx_invalidate(new_branch)
+        self.ecx_reconsider(parent8)
         self.wait_for_enforcer()
         self.sync_parent_chain()
         for node in self.nodes:
