@@ -120,6 +120,19 @@ public:
     /** Have the parent chain's block producer propose (M3) a withdrawal
      *  bundle for `slot`.  */
     virtual void ProposeWithdrawalBundle(uint8_t slot, const CTransaction& blinded_m6) = 0;
+
+    /** Turn off the block producer's automatic votes for withdrawal bundles,
+     *  for every slot: it votes only for the bundles it is told to
+     *  (SetBundleAck).  */
+    virtual void DisableAutomaticBundleVotes() = 0;
+
+    /** The bundles of `slot` the block producer is told to vote for.  */
+    virtual std::vector<uint256> GetBundleAcks(uint8_t slot) = 0;
+
+    /** Tell the block producer to vote for bundle `m6id` of `slot` (`ack`),
+     *  or no longer to.  It forgets an ACK for a bundle that isn't pending on
+     *  the parent chain when it builds a block.  */
+    virtual void SetBundleAck(uint8_t slot, const uint256& m6id, bool ack) = 0;
 };
 
 /** What the view knows about the event a deposit or bundle outcome
@@ -140,7 +153,8 @@ enum class DepositStatus {
 class ParentChainView
 {
 public:
-    ParentChainView(DepositSource& source, uint8_t slot, int min_depth);
+    /** `manage_votes`: see VoteForBundle.  */
+    ParentChainView(DepositSource& source, uint8_t slot, int min_depth, bool manage_votes = false);
 
     /** Catch up with the parent chain's best chain.  Throws
      *  DepositSourceError.  */
@@ -198,10 +212,21 @@ public:
      *  DepositSourceError.  */
     void ProposeBundle(const CTransaction& blinded_m6) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
+    /** If the view manages the votes of the parent chain's block producer
+     *  (for its miners): have it vote for bundle `m6id` alone, or for none of
+     *  this slot's (nullopt).  It turns off the producer's automatic votes,
+     *  which would back bundles a reorg of this chain replaced; ACKs `m6id`
+     *  once it is pending on the parent chain; and withdraws ACKs for the
+     *  slot's other bundles.  Asks the producer again only once the view
+     *  moved to a new tip, or for another bundle.  Throws
+     *  DepositSourceError.  */
+    void VoteForBundle(const std::optional<uint256>& m6id) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
 private:
     DepositSource& m_source;
     const uint8_t m_slot;
     const int m_min_depth;
+    const bool m_manage_votes;
 
     mutable Mutex m_mutex;
     std::optional<ParentHeader> m_tip GUARDED_BY(m_mutex);
@@ -217,6 +242,12 @@ private:
     std::optional<uint256> m_proposed GUARDED_BY(m_mutex);
     /** The bundle last logged as proposed.  */
     uint256 m_announced GUARDED_BY(m_mutex);
+    /** Whether the block producer's automatic bundle votes are off.  */
+    bool m_automatic_votes_off GUARDED_BY(m_mutex){false};
+    /** The tip and bundle the producer's votes were last set for.  */
+    std::optional<std::pair<uint256, std::optional<uint256>>> m_voted GUARDED_BY(m_mutex);
+    /** The bundle last logged as voted for.  */
+    std::optional<uint256> m_announced_vote GUARDED_BY(m_mutex);
 
     int Depth(int height) const EXCLUSIVE_LOCKS_REQUIRED(m_mutex) { return m_tip->height - height; }
     /** The event ending bundle `m6id`, if any.  */
@@ -230,7 +261,8 @@ bool ViolatesCheckpoint(const CBlockIndex& index, const std::optional<BundleComm
 /** Bring the node in line with its view of the parent chain: invalidate the
  *  active chain's blocks that record deposits or bundle outcomes the parent
  *  chain no longer has, or that lack its checkpoint, make valid again blocks
- *  whose events are back, and propose the pending withdrawal bundle.  */
+ *  whose events are back, and propose (and vote for) the pending withdrawal
+ *  bundle.  */
 void SyncWithParentChain(ChainstateManager& chainman);
 
 /** Runs SyncWithParentChain on a thread of its own, whenever triggered.  Not

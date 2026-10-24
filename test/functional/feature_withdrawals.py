@@ -8,8 +8,10 @@ Runs a parent chain as feature_deposits.py does.  Withdraws coins deposited
 from it, and checks that SideBoost nodes bundle the withdrawals, propose the
 bundle to the enforcer, record its success once the parent chain pays it out,
 bundle its withdrawals again when it fails, reject blocks that record
-outcomes wrongly, follow a parent chain reorg that drops a payout, and
-return to the block that created a bundle the parent chain paid out.
+outcomes wrongly, follow a parent chain reorg that drops a payout, return
+to the block that created a bundle the parent chain paid out, and (with
+-bundlevotes) have the enforcer vote only for the bundle pending on their
+chain.
 """
 
 from decimal import Decimal
@@ -32,6 +34,11 @@ class WithdrawalsTest(ParentChainTest, BitcoinTestFramework):
         """Have the parent chain's block producer vote for bundles it knows
         ("KNOWN"), or abstain ("NONE")."""
         self.enforcer("BlockProducerService/SetWithdrawalBundlePolicy", {"policy": f"WITHDRAWAL_BUNDLE_POLICY_{policy}"})
+
+    def bundle_acks(self):
+        """The bundles the parent chain's block producer is told to vote for."""
+        state = self.enforcer("BlockProducerService/GetBlockProducerState")
+        return [bytes.fromhex(ack["m6id"]["hex"])[::-1].hex() for ack in state.get("explicitBundleAcks", [])]
 
     @staticmethod
     def outcome_tx(m6id, succeeded):
@@ -243,6 +250,44 @@ class WithdrawalsTest(ParentChainTest, BitcoinTestFramework):
         assert_raises_rpc_error(-1, "bad-parent-checkpoint", self.generate, node1, 1, sync_fun=self.no_op)
         node1.reconsiderblock(stale_block)
         self.sync_blocks()
+
+        self.log.info("With -bundlevotes, the enforcer votes only for the bundle pending on the node's chain")
+        self.set_bundle_policy("KNOWN")
+        self.restart_node(0, self.extra_args[0] + ["-bundlevotes"])
+        self.connect_nodes(0, 1)
+        ecx_addr4 = self.ecx.getnewaddress()
+        txid4 = node0.withdraw(ecx_addr4, Decimal("0.125"))
+        first_block = self.generate(node0, 1)[0]
+        first = node0.getwithdrawals()["bundle"]
+        self.wait_for_proposal(first["m6id"])
+        self.ecx_mine()  # its M3: pending there, the ACK sticks
+        node0.mockscheduler(6)
+        self.wait_until(lambda: self.bundle_acks() == [first["m6id"]])
+        assert_equal(self.enforcer("BlockProducerService/GetBlockProducerState")["withdrawalBundlePolicy"], "WITHDRAWAL_BUNDLE_POLICY_NONE")
+        self.ecx_mine(2)  # votes for it
+        # A reorg of this chain replaces the bundle's block, and the bundle
+        self.disconnect_nodes(0, 1)
+        node1.invalidateblock(first_block)
+        node1.sendrawtransaction(node0.getrawtransaction(txid4, False, first_block))
+        self.generate(node1, node0.getblockcount() - node1.getblockcount() + 5, sync_fun=self.no_op)
+        node1.reconsiderblock(first_block)
+        self.connect_nodes(0, 1)
+        self.sync_blocks()
+        second = node0.getwithdrawals()["bundle"]
+        assert second["m6id"] != first["m6id"]
+        node0.mockscheduler(6)
+        self.wait_until(lambda: self.bundle_acks() == [])  # the new one isn't pending there yet
+        self.ecx_mine()
+        node0.mockscheduler(6)
+        self.wait_until(lambda: self.bundle_acks() == [second["m6id"]])
+        # Only the new bundle is paid out, and once
+        self.mine_until_paid(ecx_addr4, Decimal("0.125"))
+        self.record_outcome(second["m6id"], True)
+        self.sync_blocks()
+        node0.mockscheduler(6)
+        self.wait_until(lambda: self.bundle_acks() == [])
+        self.ecx_mine(12)  # the old bundle expires
+        assert_equal(len([t for t in self.ecx.listtransactions("*", 1000) if t.get("address") == ecx_addr4 and t["category"] == "receive"]), 1)
 
         self.log.info("Both nodes end with the same UTXO set, which node1's coinstatsindex tracked")
         assert_equal(node0.gettxoutsetinfo()["hash_serialized_3"], node1.gettxoutsetinfo()["hash_serialized_3"])

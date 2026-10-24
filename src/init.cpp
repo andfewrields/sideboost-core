@@ -517,6 +517,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
                    ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-fastprune", "Use smaller block files and lower minimum prune height for testing purposes", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-depositslot=<n>", "Take deposits from BIP300 sidechain slot <n> of the parent chain (regtest-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-bundlevotes", strprintf("For parent chain miners: have the enforcer (-enforcer) vote only for the withdrawal bundle pending on this node's active chain, rather than for bundles a reorg of this chain replaced. Turns off the enforcer's automatic withdrawal bundle votes, for all sidechains (default: %u)", drivechain::DEFAULT_BUNDLE_VOTES), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-enforcer=<host:port>", strprintf("The gRPC address of the parent chain's bip300301_enforcer, used to check and credit deposits. Required on chains that take deposits (default port: %u)", drivechain::DEFAULT_ENFORCER_PORT), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
 #if HAVE_SYSTEM
     argsman.AddArg("-blocknotify=<cmd>", "Execute command when the best block changes (%s in cmd is replaced by block hash). Not run for blocks connected during initial block download or reindexing.", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
@@ -1427,7 +1428,8 @@ static ChainstateLoadResult InitAndLoadChainstate(
             Assert(SplitHostPort(args.GetArg("-enforcer", ""), port, host)); // checked in AppInitParameterInteraction
             node.deposit_source = std::make_unique<drivechain::EnforcerClient>(host, port, drivechain::ENFORCER_TIMEOUT);
             node.parent_chain = std::make_unique<drivechain::ParentChainView>(
-                *node.deposit_source, *chainparams.GetConsensus().deposit_slot, chainparams.GetConsensus().nDepositMinDepth);
+                *node.deposit_source, *chainparams.GetConsensus().deposit_slot, chainparams.GetConsensus().nDepositMinDepth,
+                args.GetBoolArg("-bundlevotes", drivechain::DEFAULT_BUNDLE_VOTES));
         }
         chainman_opts.parent_chain = node.parent_chain.get();
     }

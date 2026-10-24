@@ -342,6 +342,58 @@ BOOST_AUTO_TEST_CASE(parent_chain_bundles)
     BOOST_CHECK(view.IsOutcomeFinal(m6id));
 }
 
+BOOST_AUTO_TEST_CASE(bundle_votes)
+{
+    FakeParentChain parent{m_rng};
+    const uint256 m6id{m_rng.rand256()}, stale{m_rng.rand256()};
+    using Kind = BundleEvent::Kind;
+    const auto event{[](const uint256& id, Kind kind) { return BundleEvent{.m6id = id, .kind = kind, .block_hash = {}, .height = 0, .commitment = std::nullopt}; }};
+    const auto acks{[&] { return std::vector(parent.acks.begin(), parent.acks.end()); }};
+
+    // A view that doesn't manage the votes leaves them alone
+    ParentChainView passive{parent, /*slot=*/83, /*min_depth=*/3};
+    parent.Mine({}, {}, {event(stale, Kind::SUBMITTED)});
+    parent.acks = {stale};
+    passive.Update();
+    passive.VoteForBundle(m6id);
+    BOOST_CHECK(parent.automatic_votes);
+    BOOST_CHECK(acks() == std::vector{stale});
+
+    // One that does turns off automatic votes and withdraws others' ACKs,
+    // but ACKs its bundle only once it is pending there
+    ParentChainView view{parent, /*slot=*/83, /*min_depth=*/3, /*manage_votes=*/true};
+    view.VoteForBundle(m6id); // before an Update: nothing to go by
+    BOOST_CHECK(parent.automatic_votes);
+    view.Update();
+    view.VoteForBundle(m6id);
+    BOOST_CHECK(!parent.automatic_votes);
+    BOOST_CHECK(acks().empty());
+    // It asks again only on a new tip, or for another bundle
+    parent.acks = {stale};
+    view.VoteForBundle(m6id);
+    BOOST_CHECK_EQUAL(parent.ack_queries, 1);
+    BOOST_CHECK(acks() == std::vector{stale});
+    parent.Mine({}, {}, {event(m6id, Kind::SUBMITTED)});
+    view.Update();
+    view.VoteForBundle(m6id);
+    BOOST_CHECK_EQUAL(parent.ack_queries, 2);
+    BOOST_CHECK(acks() == std::vector{m6id});
+    view.VoteForBundle(m6id);
+    BOOST_CHECK_EQUAL(parent.ack_queries, 2);
+
+    // No bundle (a reorg of this chain took it away): no votes
+    view.VoteForBundle(std::nullopt);
+    BOOST_CHECK(acks().empty());
+    view.VoteForBundle(m6id);
+    BOOST_CHECK(acks() == std::vector{m6id});
+
+    // Nor once it ended
+    parent.Mine({}, {}, {event(m6id, Kind::FAILED)});
+    view.Update();
+    view.VoteForBundle(m6id);
+    BOOST_CHECK(acks().empty());
+}
+
 BOOST_AUTO_TEST_CASE(checkpoint)
 {
     FakeParentChain parent{m_rng};

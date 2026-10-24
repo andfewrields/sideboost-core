@@ -54,6 +54,21 @@ UniValue HashArg(const uint256& hash)
     return res;
 }
 
+/** An M6ID, which the enforcer takes in consensus (txid byte) order.  */
+UniValue M6idArg(const uint256& m6id)
+{
+    UniValue res{UniValue::VOBJ};
+    res.pushKV("hex", HexStr(m6id));
+    return res;
+}
+
+uint256 M6idField(const UniValue& obj)
+{
+    const auto m6id{TryParseHex<unsigned char>(Field(Field(obj, "m6id"), "hex").getValStr())};
+    if (!m6id || m6id->size() != uint256::size()) throw DepositSourceError("enforcer reply: bad m6id");
+    return uint256{*m6id};
+}
+
 std::string Dechunk(std::string_view body)
 {
     std::string res;
@@ -96,10 +111,7 @@ void ParseEvents(const UniValue& block_info, const ParentHeader& header, ParentE
                 .value = static_cast<CAmount>(value),
             }});
         } else if (const UniValue& withdrawal{Field(event, "withdrawalBundle")}; !withdrawal.isNull()) {
-            // The M6ID in consensus (txid byte) order
-            const auto m6id{TryParseHex<unsigned char>(Field(Field(withdrawal, "m6id"), "hex").getValStr())};
-            if (!m6id || m6id->size() != uint256::size()) throw DepositSourceError("enforcer reply: bad m6id");
-            BundleEvent bundle_event{.m6id = uint256{*m6id}, .block_hash = header.hash, .height = header.height, .commitment = std::nullopt};
+            BundleEvent bundle_event{.m6id = M6idField(withdrawal), .block_hash = header.hash, .height = header.height, .commitment = std::nullopt};
             const UniValue& kind{Field(withdrawal, "event")};
             if (const UniValue& succeeded{Field(kind, "succeeded")}; !succeeded.isNull()) {
                 // A treasury event too
@@ -238,6 +250,35 @@ void EnforcerClient::ProposeWithdrawalBundle(uint8_t slot, const CTransaction& b
     request.pushKV("sidechainId", slot);
     request.pushKV("transaction", EncodeBase64(tx_bytes));
     Call("BlockProducerService/ProposeWithdrawalBundle", request);
+}
+
+void EnforcerClient::DisableAutomaticBundleVotes()
+{
+    UniValue request{UniValue::VOBJ};
+    request.pushKV("policy", "WITHDRAWAL_BUNDLE_POLICY_NONE");
+    Call("BlockProducerService/SetWithdrawalBundlePolicy", request);
+}
+
+std::vector<uint256> EnforcerClient::GetBundleAcks(uint8_t slot)
+{
+    const UniValue reply{Call("BlockProducerService/GetBlockProducerState", UniValue{UniValue::VOBJ})};
+    std::vector<uint256> res;
+    const UniValue& acks{Field(reply, "explicitBundleAcks")};
+    if (acks.isNull()) return res;
+    if (!acks.isArray()) throw DepositSourceError("enforcer reply: bad explicitBundleAcks");
+    for (const UniValue& ack : acks.getValues()) {
+        if (U64Field(ack, "sidechainNumber") == slot) res.push_back(M6idField(ack));
+    }
+    return res;
+}
+
+void EnforcerClient::SetBundleAck(uint8_t slot, const uint256& m6id, bool ack)
+{
+    UniValue request{UniValue::VOBJ};
+    request.pushKV("sidechainNumber", slot);
+    request.pushKV("m6id", M6idArg(m6id));
+    request.pushKV("ack", ack);
+    Call("BlockProducerService/SetWithdrawalBundleAck", request);
 }
 
 } // namespace drivechain

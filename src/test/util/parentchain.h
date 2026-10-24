@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <map>
 #include <optional>
+#include <set>
 #include <vector>
 
 /** A parent chain in memory: blocks with treasury and bundle events, and a
@@ -29,6 +30,12 @@ public:
     uint256 tip;
     /** The withdrawal bundles proposed to it, oldest first.  */
     std::vector<CTransactionRef> proposals;
+    /** Whether the block producer votes for bundles it isn't told to.  */
+    bool automatic_votes{true};
+    /** The bundles it is told to vote for.  */
+    std::set<uint256> acks;
+    /** How often it was asked for them.  */
+    int ack_queries{0};
     FastRandomContext& rng;
 
     explicit FakeParentChain(FastRandomContext& rng_in) : rng{rng_in}
@@ -86,6 +93,23 @@ public:
     void ProposeWithdrawalBundle(uint8_t, const CTransaction& blinded_m6) override
     {
         proposals.push_back(MakeTransactionRef(blinded_m6));
+    }
+
+    void DisableAutomaticBundleVotes() override { automatic_votes = false; }
+
+    std::vector<uint256> GetBundleAcks(uint8_t) override
+    {
+        ++ack_queries;
+        return {acks.begin(), acks.end()};
+    }
+
+    void SetBundleAck(uint8_t, const uint256& m6id, bool ack) override
+    {
+        if (ack) {
+            acks.insert(m6id);
+        } else {
+            acks.erase(m6id);
+        }
     }
 };
 

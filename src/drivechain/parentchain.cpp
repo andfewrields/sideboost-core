@@ -28,8 +28,8 @@ constexpr int HEADER_WINDOW{1000};
 
 } // namespace
 
-ParentChainView::ParentChainView(DepositSource& source, uint8_t slot, int min_depth)
-    : m_source{source}, m_slot{slot}, m_min_depth{min_depth} {}
+ParentChainView::ParentChainView(DepositSource& source, uint8_t slot, int min_depth, bool manage_votes)
+    : m_source{source}, m_slot{slot}, m_min_depth{min_depth}, m_manage_votes{manage_votes} {}
 
 void ParentChainView::Update()
 {
@@ -253,6 +253,36 @@ void ParentChainView::ProposeBundle(const CTransaction& blinded_m6)
     m_proposed = m_announced = m6id;
 }
 
+void ParentChainView::VoteForBundle(const std::optional<uint256>& m6id)
+{
+    if (!m_manage_votes) return;
+    LOCK(m_mutex);
+    if (!m_tip || m_voted == std::pair{m_tip->hash, m6id}) return;
+    if (!m_automatic_votes_off) {
+        m_source.DisableAutomaticBundleVotes();
+        m_automatic_votes_off = true;
+        LogInfo("Turned off the parent chain block producer's automatic withdrawal bundle votes");
+    }
+    // The producer forgets an ACK for a bundle that isn't pending yet
+    const bool pending{m6id && !Outcome(*m6id) && std::ranges::any_of(m_bundle_events, [&](const BundleEvent& event) {
+        return event.m6id == *m6id && event.kind == BundleEvent::Kind::SUBMITTED;
+    })};
+    bool acked{false};
+    for (const uint256& other : m_source.GetBundleAcks(m_slot)) {
+        if (pending && other == *m6id) {
+            acked = true;
+        } else {
+            m_source.SetBundleAck(m_slot, other, false);
+            LogInfo("No longer voting for withdrawal bundle %s on the parent chain", other.ToString());
+        }
+    }
+    if (pending && !acked) m_source.SetBundleAck(m_slot, *m6id, true);
+    const std::optional<uint256> voted{pending ? m6id : std::nullopt};
+    if (voted && m_announced_vote != voted) LogInfo("Voting for withdrawal bundle %s on the parent chain", voted->ToString());
+    m_announced_vote = voted;
+    m_voted = std::pair{m_tip->hash, m6id};
+}
+
 namespace {
 
 /** The deposit transactions of a block: right after the coinbase.  */
@@ -344,23 +374,27 @@ CBlockIndex* FirstLostOutcome(ChainstateManager& chainman, const ParentChainView
 
 /** Propose the pending withdrawal bundle to the parent chain, once it is
  *  BundleProposalDepth deep, unless the view knows how it ended (proposing it
- *  again could pay it out twice).  */
+ *  again could pay it out twice), and vote for it alone.  While in initial
+ *  block download, whose pending bundle may be long gone, vote for none.  */
 void ProposePendingBundle(ChainstateManager& chainman, ParentChainView& parent)
 {
     CTransactionRef blinded;
+    bool syncing;
     {
         LOCK(cs_main);
         Chainstate& chainstate{chainman.ActiveChainstate()};
         const CCoinsViewCache& view{chainstate.CoinsTip()};
         const WithdrawalState state{ReadWithdrawalState(view)};
-        if (!state.bundle || chainstate.m_chain.Height() - state.bundle->height < BundleProposalDepth(chainman.GetConsensus())) return;
-        blinded = PendingBlindedM6(view, state);
+        syncing = chainman.IsInitialBlockDownload();
+        if (state.bundle && chainstate.m_chain.Height() - state.bundle->height >= BundleProposalDepth(chainman.GetConsensus())) {
+            blinded = PendingBlindedM6(view, state);
+        }
     }
-    if (!blinded) return;
     try {
-        parent.ProposeBundle(*blinded);
+        if (blinded) parent.ProposeBundle(*blinded);
+        parent.VoteForBundle(blinded && !syncing ? std::optional{blinded->GetHash().ToUint256()} : std::nullopt);
     } catch (const DepositSourceError& e) {
-        LogDebug(BCLog::VALIDATION, "Can't propose withdrawal bundle %s: %s", blinded->GetHash().ToString(), e.what());
+        LogDebug(BCLog::VALIDATION, "Can't propose or vote for the pending withdrawal bundle: %s", e.what());
     }
 }
 
