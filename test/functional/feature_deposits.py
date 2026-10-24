@@ -125,7 +125,7 @@ class DepositsTest(ParentChainTest, BitcoinTestFramework):
         peer.send_and_ping(msg_block(on_top))
         assert_equal(node0.getbestblockhash(), tip)
         # Unlike for blocks invalid whatever the parent chain
-        peer.send_without_ping(msg_block(self.make_block(node0, [ordinary, good4])))
+        peer.send_without_ping(msg_block(self.make_block(node0, [ordinary, good5])))  # not the block submitted above
         peer.wait_for_disconnect()
 
         self.log.info("Correct blocks are accepted, by both nodes")
