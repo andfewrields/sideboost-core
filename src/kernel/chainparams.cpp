@@ -148,11 +148,18 @@ static constexpr int64_t MaxFutureBlockTime(int64_t spacing)
 {
     return std::min(MAX_FUTURE_BLOCK_TIME, 30 * spacing);
 }
+/** Blocks a pruned node keeps at least: MIN_TIME_TO_KEEP's worth.  */
+static constexpr int BlocksToKeep(int64_t spacing)
+{
+    return static_cast<int>(MIN_TIME_TO_KEEP / spacing);
+}
 static_assert(ScaleBlockLimit(MAX_BLOCK_WEIGHT, 10) == 66'668);
 static_assert(ScaleBlockLimit(MAX_BLOCK_SIGOPS_COST, 10) == 1'332);
 static_assert(ScaleBlockLimit(MAX_BLOCK_WEIGHT, BITCOIN_BLOCK_SPACING) == int64_t{MAX_BLOCK_WEIGHT});
 static_assert(CoinbaseMaturity(10) == 1'500);
 static_assert(MaxFutureBlockTime(10) == 5 * 60);
+static_assert(BlocksToKeep(10) == 17'280);
+static_assert(BlocksToKeep(BITCOIN_BLOCK_SPACING) == 288);
 static_assert(MaxFutureBlockTime(BITCOIN_BLOCK_SPACING) == MAX_FUTURE_BLOCK_TIME);
 static_assert(MaxFutureBlockTime(SIDEBOOST_BLOCK_SPACING) < SIDEBOOST_DIFFICULTY_WINDOW * SIDEBOOST_BLOCK_SPACING);
 
@@ -252,6 +259,7 @@ public:
         pchMessageStart[3] = 0xe3;
         nDefaultPort = 8350;
         nPruneAfterHeight = 100000;
+        m_min_blocks_to_keep = BlocksToKeep(SIDEBOOST_BLOCK_SPACING);
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 1;
 
@@ -310,6 +318,7 @@ public:
         pchMessageStart[3] = 0xe4;
         nDefaultPort = 18350;
         nPruneAfterHeight = 1000;
+        m_min_blocks_to_keep = BlocksToKeep(SIDEBOOST_BLOCK_SPACING);
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 1;
 
@@ -367,6 +376,7 @@ public:
         pchMessageStart[3] = 0xe5;
         nDefaultPort = 48350;
         nPruneAfterHeight = 1000;
+        m_min_blocks_to_keep = BlocksToKeep(SIDEBOOST_BLOCK_SPACING);
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 1;
 
@@ -464,6 +474,7 @@ public:
 
         nDefaultPort = 38350;
         nPruneAfterHeight = 1000;
+        m_min_blocks_to_keep = BlocksToKeep(SIDEBOOST_BLOCK_SPACING);
 
         genesis = CreateSideBoostGenesisBlock("SideBoost signet genesis 2026-10-11", 1791761767, 8044771, 0x1e00ffff, 1);
         consensus.hashGenesisBlock = genesis.GetHash();
@@ -541,6 +552,7 @@ public:
         pchMessageStart[3] = 0xda;
         nDefaultPort = 18454;
         nPruneAfterHeight = opts.fastprune ? 100 : 1000;
+        m_min_blocks_to_keep = BlocksToKeep(BITCOIN_BLOCK_SPACING); // as the tests expect
         m_assumed_blockchain_size = 0;
         m_assumed_chain_state_size = 0;
 

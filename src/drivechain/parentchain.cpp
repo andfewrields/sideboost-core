@@ -6,6 +6,8 @@
 
 #include <chain.h>
 #include <consensus/validation.h>
+#include <kernel/chainparams.h>
+#include <kernel/notifications_interface.h>
 #include <logging.h>
 #include <node/blockstorage.h>
 #include <primitives/block.h>
@@ -13,6 +15,7 @@
 #include <util/check.h>
 #include <util/string.h>
 #include <util/thread.h>
+#include <util/translation.h>
 #include <validation.h>
 
 #include <algorithm>
@@ -25,6 +28,11 @@ namespace {
 /** How much of the parent chain's best chain the view remembers, to find
  *  where a reorg forks off.  A deeper reorg reloads the view.  */
 constexpr int HEADER_WINDOW{1000};
+
+// The blocks recording events a parent chain reorg can still change, which
+// following it reads, are within what pruned nodes keep, even if the parent
+// chain runs at half speed
+static_assert(2 * DEPOSIT_FINALITY_DEPTH * PARENT_CHAIN_BLOCK_SPACING <= MIN_TIME_TO_KEEP);
 
 } // namespace
 
@@ -285,6 +293,17 @@ void ParentChainView::VoteForBundle(const std::optional<uint256>& m6id)
 
 namespace {
 
+/** Stop the node: following the parent chain needs the data of the active
+ *  chain's block at `height`, which it can't read (pruned, beyond
+ *  MinBlocksToKeep).  As a pruned Bitcoin node facing a reorg deeper than
+ *  what it kept.  */
+void MissingBlockData(ChainstateManager& chainman, int height)
+{
+    chainman.GetNotifications().fatalError(strprintf(
+        _("Following the parent chain needs block %d, which this node can't read. If it prunes, the block was deleted: restart with -reindex to download the chain again."),
+        height));
+}
+
 /** The deposit transactions of a block: right after the coinbase.  */
 std::span<const CTransactionRef> Deposits(const CBlock& block)
 {
@@ -319,8 +338,8 @@ CBlockIndex* FirstLostDeposit(ChainstateManager& chainman, const ParentChainView
         CBlock block;
         CBlockUndo undo;
         if (!index || !chainman.m_blockman.ReadBlock(block, *index) || !chainman.m_blockman.ReadBlockUndo(undo, *index)) {
-            LogWarning("Can't read block at height %d to check its deposits", height);
-            break;
+            MissingBlockData(chainman, height);
+            return nullptr;
         }
         uint64_t lowest{std::numeric_limits<uint64_t>::max()};
         bool final{true};
@@ -353,8 +372,8 @@ CBlockIndex* FirstLostOutcome(ChainstateManager& chainman, const ParentChainView
         CBlock block;
         CBlockUndo undo;
         if (!index || !chainman.m_blockman.ReadBlock(block, *index) || !chainman.m_blockman.ReadBlockUndo(undo, *index)) {
-            LogWarning("Can't read block at height %d to check its bundle outcome", height);
-            break;
+            MissingBlockData(chainman, height);
+            return nullptr;
         }
         const auto i{BundleOutcomeIndex(block)};
         const auto recorded{i ? ParseBundleOutcomeTransaction(*block.vtx[*i]) : std::nullopt};
@@ -424,7 +443,8 @@ void SyncWithParentChain(ChainstateManager& chainman)
         LOCK(cs_main);
         bool reconsidered{false};
         for (auto& [_, index] : chainman.m_blockman.m_block_index) {
-            if (!(index.nStatus & BLOCK_FAILED_PARENT_CHAIN)) continue;
+            // Not those pruned since (beyond MinBlocksToKeep)
+            if (!(index.nStatus & BLOCK_FAILED_PARENT_CHAIN) || !(index.nStatus & BLOCK_HAVE_DATA)) continue;
             CBlock block;
             if (!chainman.m_blockman.ReadBlock(block, index) || !HasEvents(*parent, block, index)) continue;
             LogInfo("The parent chain has the events of block %s again", index.GetBlockHash().ToString());
@@ -450,6 +470,16 @@ void SyncWithParentChain(ChainstateManager& chainman)
                 CBlockIndex* const other{chainstate.m_chain[checkpoint->height]};
                 LogInfo("The parent chain paid out a bundle from block %s at height %d, which the active chain lacks", checkpoint->block_hash.ToString(), checkpoint->height);
                 if (!invalid || other->nHeight < invalid->nHeight) invalid = other;
+            }
+        }
+        if (invalid) {
+            // Disconnecting the blocks down to it reads their data
+            LOCK(cs_main);
+            for (const CBlockIndex* index{chainstate.m_chain.Tip()}; index && index->nHeight >= invalid->nHeight; index = index->pprev) {
+                if ((index->nStatus & BLOCK_HAVE_MASK) != BLOCK_HAVE_MASK) {
+                    MissingBlockData(chainman, index->nHeight);
+                    return;
+                }
             }
         }
         if (invalid) {

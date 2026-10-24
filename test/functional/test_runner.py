@@ -118,6 +118,7 @@ BASE_SCRIPTS = [
     'feature_assumeutxo.py',
     'feature_deposits.py',
     'feature_withdrawals.py',
+    'feature_parentchain_pruned.py',
     'mempool_updatefromblock.py',
     'mempool_persist.py',
     # vv Tests less than 60s vv

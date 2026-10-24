@@ -69,6 +69,11 @@ struct HeadersSyncParams {
     size_t redownload_buffer_size{0};
 };
 
+/** How much of the chain, in time, pruned nodes keep at least: two days, as
+ *  Bitcoin's 288 blocks (MIN_BLOCKS_TO_KEEP, which regtest keeps for the
+ *  tests).  In seconds.  */
+inline constexpr int64_t MIN_TIME_TO_KEEP{2 * 24 * 60 * 60};
+
 /**
  * CChainParams defines various tweakable parameters of a given instance of the
  * Bitcoin system.
@@ -99,6 +104,9 @@ public:
     /** If this chain allows time to be mocked */
     bool IsMockableChain() const { return m_is_mockable_chain; }
     uint64_t PruneAfterHeight() const { return nPruneAfterHeight; }
+    /** Blocks from the tip a pruned node keeps at least, and serves
+     *  (NODE_NETWORK_LIMITED): MIN_TIME_TO_KEEP's worth */
+    int MinBlocksToKeep() const { return m_min_blocks_to_keep; }
     /** Minimum free space (in GB) needed for data directory */
     uint64_t AssumedBlockchainSize() const { return m_assumed_blockchain_size; }
     /** Minimum free space (in GB) needed for data directory when pruned; Does not include prune target*/
@@ -186,6 +194,7 @@ protected:
     MessageStartChars pchMessageStart;
     uint16_t nDefaultPort;
     uint64_t nPruneAfterHeight;
+    int m_min_blocks_to_keep;
     uint64_t m_assumed_blockchain_size;
     uint64_t m_assumed_chain_state_size;
     std::vector<std::string> vSeeds;

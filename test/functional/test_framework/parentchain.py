@@ -127,6 +127,8 @@ class ParentChainTest:
         self.start_parent_chain()
         args = [f"-depositslot={SLOT}", f"-enforcer=127.0.0.1:{self.enforcer_port}"]
         self.extra_args = [args, args + ["-coinstatsindex"]][:self.num_nodes]
+        for node_args, more in zip(self.extra_args, getattr(self, "more_args", [])):
+            node_args += more
         super().setup_nodes()
 
     def stop_nodes(self, wait=0):

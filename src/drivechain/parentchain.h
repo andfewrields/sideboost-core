@@ -39,6 +39,8 @@ namespace drivechain {
  *  outcomes in it are no longer checked again: a parent chain reorg deeper
  *  than this is not undone automatically.  */
 static constexpr int DEPOSIT_FINALITY_DEPTH{100};
+/** The parent chain's target block interval, in seconds.  */
+static constexpr int64_t PARENT_CHAIN_BLOCK_SPACING{10 * 60};
 
 /** The source of a node's information about the parent chain could not
  *  answer (unreachable, not synced, malformed reply).  Not a verdict on any

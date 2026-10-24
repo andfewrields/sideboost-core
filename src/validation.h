@@ -72,7 +72,9 @@ namespace util {
 class SignalInterrupt;
 } // namespace util
 
-/** Block files containing a block-height within MIN_BLOCKS_TO_KEEP of ActiveChain().Tip() will not be pruned. */
+/** Bitcoin's pruning floor.  Block files containing a block-height within
+ *  CChainParams::MinBlocksToKeep() of ActiveChain().Tip() will not be pruned:
+ *  two days' worth, which is this on regtest.  */
 inline constexpr unsigned int MIN_BLOCKS_TO_KEEP = 288;
 inline constexpr signed int DEFAULT_CHECKBLOCKS = 6;
 inline constexpr int DEFAULT_CHECKLEVEL{3};
