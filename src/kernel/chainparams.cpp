@@ -431,9 +431,10 @@ public:
         vSeeds.clear();
 
         if (!options.challenge) {
-            /* FIXME: This is Namecoin's default challenge; replace it with a
-               key SideBoost controls before running a public signet.  */
-            bin = "512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae"_hex_v_u8;
+            /* SideBoost has no default signet: nodes require -signetchallenge
+               (see AppInitParameterInteraction).  An unsatisfiable placeholder
+               for code that builds signet params without one.  */
+            bin = {OP_RETURN};
             //vFixedSeeds = std::vector<uint8_t>(std::begin(chainparams_seed_signet), std::end(chainparams_seed_signet));
             //vSeeds.emplace_back("seed.signet.bitcoin.sprovoost.nl.");
             //vSeeds.emplace_back("seed.signet.achownodes.xyz."); // Ava Chow, only supports x1, x5, x9, x49, x809, x849, xd, x400, x404, x408, x448, xc08, xc48, x40c

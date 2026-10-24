@@ -989,6 +989,10 @@ bool AppInitParameterInteraction(const ArgsManager& args)
         return InitError(errors);
     }
 
+    if (chain == ChainType::SIGNET && !args.IsArgSet("-signetchallenge")) {
+        return InitError(_("SideBoost has no default signet: set -signetchallenge to the challenge of the signet to use."));
+    }
+
     if (chainparams.GetConsensus().deposit_slot) {
         uint16_t port{drivechain::DEFAULT_ENFORCER_PORT};
         std::string host;

@@ -45,8 +45,8 @@ class SignetBasicTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.signets = [
             SignetParams(challenge='51'), # OP_TRUE
-            SignetParams(), # default challenge
-            # default challenge as a 2-of-2, which means it should fail
+            SignetParams(challenge=SIGNET_DEFAULT_CHALLENGE), # Namecoin's default (SideBoost has none)
+            # it as a 2-of-2, which means it should fail
             SignetParams(challenge='522103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae')
         ]
 

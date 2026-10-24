@@ -505,8 +505,16 @@ class ConfArgsTest(BitcoinTestFramework):
         self.log.info("Test -acceptstalefeeestimates option support")
         conf_file = self.nodes[0].datadir_path / "namecoin.conf"
         for chain, chain_name in {("main", ""), ("test", "testnet3"), ("signet", "signet"), ("testnet4", "testnet4")}:
-            util.write_config(conf_file, n=0, chain=chain_name, extra_config='acceptstalefeeestimates=1\n')
+            signet_config = 'signetchallenge=51\n' if chain == "signet" else ''  # SideBoost has no default signet
+            util.write_config(conf_file, n=0, chain=chain_name, extra_config='acceptstalefeeestimates=1\n' + signet_config)
             self.nodes[0].assert_start_raises_init_error(expected_msg=f'Error: acceptstalefeeestimates is not supported on {chain} chain.')
+        util.write_config(conf_file, n=0, chain="regtest")  # Reset to regtest
+
+    def test_signetchallenge_required(self):
+        self.log.info("Test that signet needs -signetchallenge (SideBoost has no default signet)")
+        conf_file = self.nodes[0].datadir_path / "namecoin.conf"
+        util.write_config(conf_file, n=0, chain="signet")
+        self.nodes[0].assert_start_raises_init_error(expected_msg="Error: SideBoost has no default signet: set -signetchallenge to the challenge of the signet to use.")
         util.write_config(conf_file, n=0, chain="regtest")  # Reset to regtest
 
     def test_testnet3_deprecation_msg(self):
@@ -556,6 +564,7 @@ class ConfArgsTest(BitcoinTestFramework):
         self.test_ignored_conf()
         self.test_ignored_default_conf()
         self.test_acceptstalefeeestimates_arg_support()
+        self.test_signetchallenge_required()
         #self.test_testnet3_deprecation_msg()
 
         # Remove the -datadir argument so it doesn't override the config file
