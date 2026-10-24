@@ -156,6 +156,10 @@ private:
     static constexpr unsigned int LONG_SCALE = 24;
     /** Historical estimates that are older than this aren't valid */
     static constexpr unsigned int OLDEST_ESTIMATE_HISTORY{6 * 1008};
+    /** Most blocks the long horizon tracks, whatever the block interval: it
+     *  keeps a row of counters per block (a day of 10 s blocks, ~8 MB).  The
+     *  horizons above are in Bitcoin's blocks; see m_time_scale.  */
+    static constexpr unsigned int MAX_LONG_TRACKED_BLOCKS{8'640};
 
     /** Decay of .962 is a half-life of 18 blocks or about 3 hours */
     static constexpr double SHORT_DECAY = .962;
@@ -196,9 +200,16 @@ private:
     static constexpr double FEE_SPACING = 1.05;
 
     const fs::path m_estimation_filepath;
+    /** Blocks per Bitcoin block (10 minutes).  The horizons and decays above
+     *  are Bitcoin's, in its blocks, scaled by this to last as long: the
+     *  short horizon gets more periods (so it still resolves single blocks),
+     *  the medium and long ones longer periods, the long one capped at
+     *  MAX_LONG_TRACKED_BLOCKS.  */
+    const unsigned int m_time_scale;
 public:
-    /** Create new BlockPolicyEstimator and initialize stats tracking classes with default values */
-    CBlockPolicyEstimator(const fs::path& estimation_filepath, bool read_stale_estimates);
+    /** Create new BlockPolicyEstimator and initialize stats tracking classes with default values.
+     *  `time_scale`: see m_time_scale (CChainParams::BlockTimeScale()). */
+    CBlockPolicyEstimator(const fs::path& estimation_filepath, bool read_stale_estimates, unsigned int time_scale = 1);
     virtual ~CBlockPolicyEstimator();
 
     /** Process all the transactions that have been included in a block */

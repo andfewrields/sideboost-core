@@ -107,6 +107,11 @@ public:
     /** Blocks from the tip a pruned node keeps at least, and serves
      *  (NODE_NETWORK_LIMITED): MIN_TIME_TO_KEEP's worth */
     int MinBlocksToKeep() const { return m_min_blocks_to_keep; }
+    /** Blocks per Bitcoin block interval (10 minutes), by which node policy
+     *  counted in Bitcoin's blocks is scaled to last as long (fee estimation,
+     *  the wallet's confirmation target): 60 at 10 s; 1 on regtest, whose
+     *  tests assume Bitcoin's numbers */
+    unsigned int BlockTimeScale() const { return m_block_time_scale; }
     /** Minimum free space (in GB) needed for data directory */
     uint64_t AssumedBlockchainSize() const { return m_assumed_blockchain_size; }
     /** Minimum free space (in GB) needed for data directory when pruned; Does not include prune target*/
@@ -195,6 +200,7 @@ protected:
     uint16_t nDefaultPort;
     uint64_t nPruneAfterHeight;
     int m_min_blocks_to_keep;
+    unsigned int m_block_time_scale;
     uint64_t m_assumed_blockchain_size;
     uint64_t m_assumed_chain_state_size;
     std::vector<std::string> vSeeds;

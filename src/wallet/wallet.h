@@ -127,6 +127,7 @@ inline constexpr bool DEFAULT_SPEND_ZEROCONF_CHANGE = true;
 //! Default for -walletrejectlongchains
 inline constexpr bool DEFAULT_WALLET_REJECT_LONG_CHAINS{true};
 //! -txconfirmtarget default
+//! In Bitcoin's blocks: -txconfirmtarget's default is this times CChainParams::BlockTimeScale()
 inline constexpr unsigned int DEFAULT_TX_CONFIRM_TARGET = 6;
 //! -walletrbf default
 inline constexpr bool DEFAULT_WALLET_RBF = true;

@@ -211,4 +211,19 @@ BOOST_AUTO_TEST_CASE(BlockPolicyEstimates)
     }
 }
 
+BOOST_AUTO_TEST_CASE(time_scale)
+{
+    // Bitcoin's horizons in blocks: 12, 48 and 1008
+    const CBlockPolicyEstimator bitcoin{fs::path{}, DEFAULT_ACCEPT_STALE_FEE_ESTIMATES};
+    BOOST_CHECK_EQUAL(bitcoin.HighestTargetTracked(FeeEstimateHorizon::SHORT_HALFLIFE), 12U);
+    BOOST_CHECK_EQUAL(bitcoin.HighestTargetTracked(FeeEstimateHorizon::MED_HALFLIFE), 48U);
+    BOOST_CHECK_EQUAL(bitcoin.HighestTargetTracked(FeeEstimateHorizon::LONG_HALFLIFE), 1008U);
+    // As long at 10 s (60 blocks per Bitcoin block): 2 hours, 8 hours, and
+    // the long one capped at a day
+    const CBlockPolicyEstimator sideboost{fs::path{}, DEFAULT_ACCEPT_STALE_FEE_ESTIMATES, /*time_scale=*/60};
+    BOOST_CHECK_EQUAL(sideboost.HighestTargetTracked(FeeEstimateHorizon::SHORT_HALFLIFE), 720U);
+    BOOST_CHECK_EQUAL(sideboost.HighestTargetTracked(FeeEstimateHorizon::MED_HALFLIFE), 2880U);
+    BOOST_CHECK_EQUAL(sideboost.HighestTargetTracked(FeeEstimateHorizon::LONG_HALFLIFE), 8610U);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

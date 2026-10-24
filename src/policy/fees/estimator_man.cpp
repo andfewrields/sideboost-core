@@ -8,7 +8,9 @@
 #include <policy/feerate.h>
 #include <policy/fees/block_policy_estimator.h>
 #include <policy/fees/mempool_estimator.h>
+#include <kernel/chainparams.h>
 #include <util/fees.h>
+#include <validation.h>
 
 FeeRateEstimatorManager::~FeeRateEstimatorManager() = default;
 
@@ -17,7 +19,7 @@ FeeRateEstimatorManager::FeeRateEstimatorManager(const fs::path& block_policy_pa
                                                  const fs::path& mempool_estimator_path,
                                                  const CTxMemPool& mempool,
                                                  ChainstateManager& chainman)
-    : m_block_policy_estimator(std::make_unique<CBlockPolicyEstimator>(block_policy_path, read_stale_estimates)),
+    : m_block_policy_estimator(std::make_unique<CBlockPolicyEstimator>(block_policy_path, read_stale_estimates, chainman.GetParams().BlockTimeScale())),
       m_mempool_estimator(std::make_unique<MemPoolFeeRateEstimator>(mempool_estimator_path, mempool, chainman))
 {
 }

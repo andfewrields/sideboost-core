@@ -3116,7 +3116,7 @@ bool CWallet::LoadWalletArgs(std::shared_ptr<CWallet> wallet, const WalletContex
                            _("The wallet will avoid paying less than the minimum relay fee."));
     }
 
-    wallet->m_confirm_target = args.GetIntArg("-txconfirmtarget", DEFAULT_TX_CONFIRM_TARGET);
+    wallet->m_confirm_target = args.GetIntArg("-txconfirmtarget", DEFAULT_TX_CONFIRM_TARGET * Params().BlockTimeScale());
     wallet->m_spend_zero_conf_change = args.GetBoolArg("-spendzeroconfchange", DEFAULT_SPEND_ZEROCONF_CHANGE);
     wallet->m_signal_rbf = DEFAULT_WALLET_RBF;
     if (auto value{args.GetBoolArg("-walletrbf")}) {

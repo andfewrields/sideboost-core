@@ -190,7 +190,7 @@ public:
      * Read saved state of estimation data from a file and replace all internal data structures and
      * variables with this state.
      */
-    void Read(AutoFile& filein, size_t numBuckets);
+    void Read(AutoFile& filein, size_t numBuckets, uint64_t max_confirms);
 };
 
 
@@ -436,7 +436,7 @@ void TxConfirmStats::Write(AutoFile& fileout) const
     fileout << Using<VectorFormatter<VectorFormatter<EncodedDoubleFormatter>>>(failAvg);
 }
 
-void TxConfirmStats::Read(AutoFile& filein, size_t numBuckets)
+void TxConfirmStats::Read(AutoFile& filein, size_t numBuckets, uint64_t max_confirms)
 {
     // Read data file and do some very basic sanity checking
     // buckets and bucketMap are not updated yet, so don't access them
@@ -465,8 +465,8 @@ void TxConfirmStats::Read(AutoFile& filein, size_t numBuckets)
     maxPeriods = confAvg.size();
     maxConfirms = scale * maxPeriods;
 
-    if (maxConfirms <= 0 || maxConfirms > 6 * 24 * 7) { // one week
-        throw std::runtime_error("Corrupt estimates file.  Must maintain estimates for between 1 and 1008 (one week) confirms");
+    if (maxConfirms <= 0 || maxConfirms > max_confirms) {
+        throw std::runtime_error(strprintf("Corrupt estimates file.  Must maintain estimates for between 1 and %u confirms", max_confirms));
     }
     for (unsigned int i = 0; i < maxPeriods; i++) {
         if (confAvg[i].size() != numBuckets) {
@@ -558,8 +558,15 @@ bool CBlockPolicyEstimator::_removeTx(const Txid& hash, bool inBlock)
     }
 }
 
-CBlockPolicyEstimator::CBlockPolicyEstimator(const fs::path& estimation_filepath, const bool read_stale_estimates)
-    : m_estimation_filepath{estimation_filepath}
+namespace {
+
+/** Bitcoin's per-block `decay`, for blocks `time_scale` times as frequent.  */
+double ScaleDecay(double decay, unsigned int time_scale) { return std::pow(decay, 1.0 / time_scale); }
+
+} // namespace
+
+CBlockPolicyEstimator::CBlockPolicyEstimator(const fs::path& estimation_filepath, const bool read_stale_estimates, unsigned int time_scale)
+    : m_estimation_filepath{estimation_filepath}, m_time_scale{std::max(1u, time_scale)}
 {
     static_assert(MIN_BUCKET_FEERATE > 0, "Min feerate must be nonzero");
     size_t bucketIndex = 0;
@@ -572,9 +579,10 @@ CBlockPolicyEstimator::CBlockPolicyEstimator(const fs::path& estimation_filepath
     bucketMap[INF_FEERATE] = bucketIndex;
     assert(bucketMap.size() == buckets.size());
 
-    feeStats = std::unique_ptr<TxConfirmStats>(new TxConfirmStats(buckets, bucketMap, MED_BLOCK_PERIODS, MED_DECAY, MED_SCALE));
-    shortStats = std::unique_ptr<TxConfirmStats>(new TxConfirmStats(buckets, bucketMap, SHORT_BLOCK_PERIODS, SHORT_DECAY, SHORT_SCALE));
-    longStats = std::unique_ptr<TxConfirmStats>(new TxConfirmStats(buckets, bucketMap, LONG_BLOCK_PERIODS, LONG_DECAY, LONG_SCALE));
+    feeStats = std::make_unique<TxConfirmStats>(buckets, bucketMap, MED_BLOCK_PERIODS, ScaleDecay(MED_DECAY, m_time_scale), MED_SCALE * m_time_scale);
+    shortStats = std::make_unique<TxConfirmStats>(buckets, bucketMap, SHORT_BLOCK_PERIODS * m_time_scale, ScaleDecay(SHORT_DECAY, m_time_scale), SHORT_SCALE);
+    longStats = std::make_unique<TxConfirmStats>(buckets, bucketMap, LONG_BLOCK_PERIODS, ScaleDecay(LONG_DECAY, m_time_scale),
+                                                 std::min(LONG_SCALE * m_time_scale, MAX_LONG_TRACKED_BLOCKS / LONG_BLOCK_PERIODS));
 
     AutoFile est_file{fsbridge::fopen(m_estimation_filepath, "rb")};
 
@@ -793,7 +801,7 @@ unsigned int CBlockPolicyEstimator::HistoricalBlockSpan() const
     if (historicalFirst == 0) return 0;
     assert(historicalBest >= historicalFirst);
 
-    if (nBestSeenHeight - historicalBest > OLDEST_ESTIMATE_HISTORY) return 0;
+    if (nBestSeenHeight - historicalBest > OLDEST_ESTIMATE_HISTORY * m_time_scale) return 0;
 
     return historicalBest - historicalFirst;
 }
@@ -1062,9 +1070,11 @@ bool CBlockPolicyEstimator::Read(AutoFile& filein)
         std::unique_ptr<TxConfirmStats> fileFeeStats(new TxConfirmStats(buckets, bucketMap, MED_BLOCK_PERIODS, MED_DECAY, MED_SCALE));
         std::unique_ptr<TxConfirmStats> fileShortStats(new TxConfirmStats(buckets, bucketMap, SHORT_BLOCK_PERIODS, SHORT_DECAY, SHORT_SCALE));
         std::unique_ptr<TxConfirmStats> fileLongStats(new TxConfirmStats(buckets, bucketMap, LONG_BLOCK_PERIODS, LONG_DECAY, LONG_SCALE));
-        fileFeeStats->Read(filein, numBuckets);
-        fileShortStats->Read(filein, numBuckets);
-        fileLongStats->Read(filein, numBuckets);
+        // Up to what this estimator tracks (or Bitcoin's 1008 blocks)
+        const uint64_t max_confirms{std::max({feeStats->GetMaxConfirms(), shortStats->GetMaxConfirms(), longStats->GetMaxConfirms(), 1008u})};
+        fileFeeStats->Read(filein, numBuckets, max_confirms);
+        fileShortStats->Read(filein, numBuckets, max_confirms);
+        fileLongStats->Read(filein, numBuckets, max_confirms);
 
         // Fee estimates file parsed correctly
         // Copy buckets from file and refresh our bucketmap
