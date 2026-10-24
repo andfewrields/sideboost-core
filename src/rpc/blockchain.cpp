@@ -21,6 +21,7 @@
 #include <crypto/hex_base.h>
 #include <dbwrapper.h>
 #include <deploymentinfo.h>
+#include <drivechain/parentchain.h>
 #include <drivechain/withdrawal.h>
 #include <flatfile.h>
 #include <index/base.h>
@@ -1354,6 +1355,11 @@ static RPCMethod getwithdrawals()
                         {RPCResult::Type::STR, "status", "\"bundled\" or \"waiting\""},
                     }},
                 }},
+                {RPCResult::Type::OBJ, "checkpoint", /*optional=*/true, "The block the parent chain last paid out a bundle from, which valid chains contain (if any, in this node's view of the parent chain)",
+                {
+                    {RPCResult::Type::STR_HEX, "blockhash", "The block's hash"},
+                    {RPCResult::Type::NUM, "height", "Its height"},
+                }},
                 {RPCResult::Type::OBJ, "bundle", /*optional=*/true, "The pending bundle, if any",
                 {
                     {RPCResult::Type::STR_HEX, "m6id", "Its M6ID (BIP300)"},
@@ -1397,8 +1403,17 @@ static RPCMethod getwithdrawals()
     }
     result.pushKV("withdrawals", std::move(withdrawals));
 
+    if (const auto* const parent{chainman.m_options.parent_chain}) {
+        if (const auto checkpoint{parent->Checkpoint()}) {
+            UniValue obj{UniValue::VOBJ};
+            obj.pushKV("blockhash", checkpoint->block_hash.GetHex());
+            obj.pushKV("height", checkpoint->height);
+            result.pushKV("checkpoint", std::move(obj));
+        }
+    }
+
     if (const auto bundled{drivechain::BundleWithdrawals(view, state)}) {
-        const CTransactionRef blinded{drivechain::MakeBlindedM6(*bundled, state.bundle->block_hash)};
+        const CTransactionRef blinded{drivechain::MakeBlindedM6(*bundled, {state.bundle->block_hash, state.bundle->height})};
         CAmount amount{0}, fee{0};
         for (const drivechain::Withdrawal& withdrawal : *bundled) {
             amount += withdrawal.payout;

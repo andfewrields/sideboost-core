@@ -10,6 +10,7 @@
 #include <consensus/amount.h>
 #include <consensus/validation.h>
 #include <core_io.h>
+#include <drivechain/withdrawal.h>
 #include <index/txospenderindex.h>
 #include <net.h>
 #include <net_processing.h>
@@ -109,6 +110,7 @@ static RPCMethod sendrawtransaction()
             {"maxburnamount", RPCArg::Type::AMOUNT, RPCArg::Default{FormatMoney(DEFAULT_MAX_BURN_AMOUNT)},
              "Reject transactions with provably unspendable outputs (e.g. 'datacarrier' outputs that use the OP_RETURN opcode) greater than the specified value, expressed in " + CURRENCY_UNIT + ".\n"
              "If burning funds through unspendable outputs is desired, increase this value.\n"
+             "Withdrawals to the parent chain are not burns.\n"
              "This check is based on heuristics and does not guarantee spendability of outputs.\n"},
         },
         RPCResult{
@@ -134,7 +136,7 @@ static RPCMethod sendrawtransaction()
             }
 
             for (const auto& out : mtx.vout) {
-                if((out.scriptPubKey.IsUnspendable() || !out.scriptPubKey.HasValidOps()) && out.nValue > max_burn_amount) {
+                if((out.scriptPubKey.IsUnspendable() || !out.scriptPubKey.HasValidOps()) && out.nValue > max_burn_amount && !drivechain::IsWithdrawalScript(out.scriptPubKey)) {
                     throw JSONRPCTransactionError(TransactionError::MAX_BURN_EXCEEDED);
                 }
             }
@@ -1397,6 +1399,7 @@ static RPCMethod submitpackage()
             {"maxburnamount", RPCArg::Type::AMOUNT, RPCArg::Default{FormatMoney(DEFAULT_MAX_BURN_AMOUNT)},
              "Reject transactions with provably unspendable outputs (e.g. 'datacarrier' outputs that use the OP_RETURN opcode) greater than the specified value, expressed in " + CURRENCY_UNIT + ".\n"
              "If burning funds through unspendable outputs is desired, increase this value.\n"
+             "Withdrawals to the parent chain are not burns.\n"
              "This check is based on heuristics and does not guarantee spendability of outputs.\n"
             },
         },
@@ -1462,7 +1465,7 @@ static RPCMethod submitpackage()
                 }
 
                 for (const auto& out : mtx.vout) {
-                    if((out.scriptPubKey.IsUnspendable() || !out.scriptPubKey.HasValidOps()) && out.nValue > max_burn_amount) {
+                    if((out.scriptPubKey.IsUnspendable() || !out.scriptPubKey.HasValidOps()) && out.nValue > max_burn_amount && !drivechain::IsWithdrawalScript(out.scriptPubKey)) {
                         throw JSONRPCTransactionError(TransactionError::MAX_BURN_EXCEEDED);
                     }
                 }

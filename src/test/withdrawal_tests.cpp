@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <chain.h>
 #include <coins.h>
 #include <crypto/common.h>
 #include <drivechain/parentchain.h>
@@ -143,8 +144,8 @@ BOOST_AUTO_TEST_CASE(blinded_m6)
         {.payout_script = RandomPayoutScript(m_rng), .payout = 1000, .fee = 10},
         {.payout_script = RandomPayoutScript(m_rng), .payout = 2000, .fee = 20},
     };
-    const uint256 block_hash{m_rng.rand256()};
-    const CTransactionRef m6{MakeBlindedM6(withdrawals, block_hash)};
+    const BundleCommitment commitment{.block_hash = m_rng.rand256(), .height = 1234};
+    const CTransactionRef m6{MakeBlindedM6(withdrawals, commitment)};
     BOOST_CHECK(m6->vin.empty());
     BOOST_CHECK_EQUAL(m6->version, 2U);
     BOOST_REQUIRE_EQUAL(m6->vout.size(), 4U);
@@ -152,11 +153,26 @@ BOOST_AUTO_TEST_CASE(blinded_m6)
     std::vector<unsigned char> fee(8);
     WriteBE64(fee.data(), 30);
     BOOST_CHECK(m6->vout[0] == CTxOut(0, CScript() << OP_RETURN << fee));
-    BOOST_CHECK(m6->vout[1] == CTxOut(0, CScript() << OP_RETURN << std::vector<unsigned char>(block_hash.begin(), block_hash.end())));
+    // The block that created the bundle: its hash and height
+    std::vector<unsigned char> block(commitment.block_hash.begin(), commitment.block_hash.end());
+    block.insert(block.end(), {0xd2, 0x04, 0, 0});
+    BOOST_CHECK(m6->vout[1] == CTxOut(0, CScript() << OP_RETURN << block));
+    BOOST_CHECK(ParseBundleCommitment(*m6) == commitment);
     BOOST_CHECK(m6->vout[2] == CTxOut(1000, withdrawals[0].payout_script));
     BOOST_CHECK(m6->vout[3] == CTxOut(2000, withdrawals[1].payout_script));
     // Another bundle of the same withdrawals has another M6ID
-    BOOST_CHECK(MakeBlindedM6(withdrawals, m_rng.rand256())->GetHash() != m6->GetHash());
+    BOOST_CHECK(MakeBlindedM6(withdrawals, {m_rng.rand256(), 1234})->GetHash() != m6->GetHash());
+
+    // So does the mined M6, with the treasury in output 0
+    CMutableTransaction mined{*m6};
+    mined.vin.emplace_back(COutPoint{Txid::FromUint256(m_rng.rand256()), 0});
+    mined.vout[0] = CTxOut{100000, CScript() << OP_NOP8 << std::vector<unsigned char>{83} << OP_TRUE};
+    BOOST_CHECK(ParseBundleCommitment(CTransaction{mined}) == commitment);
+    // Others' don't
+    mined.vout[1].scriptPubKey = CScript() << OP_RETURN << m_rng.randbytes(32);
+    BOOST_CHECK(!ParseBundleCommitment(CTransaction{mined}));
+    mined.vout.resize(1);
+    BOOST_CHECK(!ParseBundleCommitment(CTransaction{mined}));
 }
 
 BOOST_AUTO_TEST_CASE(bundle_outcome_transaction)
@@ -279,7 +295,7 @@ BOOST_AUTO_TEST_CASE(parent_chain_bundles)
     ParentChainView view{parent, /*slot=*/83, /*min_depth=*/3};
     const uint256 m6id{m_rng.rand256()}, other{m_rng.rand256()};
     using Kind = BundleEvent::Kind;
-    const auto event{[](const uint256& id, Kind kind) { return BundleEvent{.m6id = id, .kind = kind, .block_hash = {}, .height = 0}; }};
+    const auto event{[](const uint256& id, Kind kind) { return BundleEvent{.m6id = id, .kind = kind, .block_hash = {}, .height = 0, .commitment = std::nullopt}; }};
     const auto status{[&](BundleOutcome outcome) { return view.CheckBundleOutcome(*MakeBundleOutcomeTransaction(m6id, outcome)); }};
 
     parent.Mine({}, {}, {event(m6id, Kind::SUBMITTED), event(other, Kind::SUBMITTED)});
@@ -289,7 +305,7 @@ BOOST_AUTO_TEST_CASE(parent_chain_bundles)
     BOOST_CHECK(status(BundleOutcome::FAILED) == DepositStatus::UNKNOWN);
 
     // Proposals: once per tip, and never for a bundle that ended
-    const CTransactionRef blinded{MakeBlindedM6({}, m_rng.rand256())};
+    const CTransactionRef blinded{MakeBlindedM6({}, {m_rng.rand256(), 1})};
     view.ProposeBundle(*blinded);
     view.ProposeBundle(*blinded);
     BOOST_CHECK_EQUAL(parent.proposals.size(), 1U);
@@ -307,7 +323,7 @@ BOOST_AUTO_TEST_CASE(parent_chain_bundles)
     view.Update();
     BOOST_CHECK(status(BundleOutcome::FAILED) == DepositStatus::OK); // 3 blocks on top
     BOOST_CHECK(!view.IsOutcomeFinal(m6id));
-    view.ProposeBundle(*MakeBlindedM6({}, m6id)); // another bundle, new tip
+    view.ProposeBundle(*MakeBlindedM6({}, {m6id, 1})); // another bundle, new tip
     BOOST_CHECK_EQUAL(parent.proposals.size(), 2U);
 
     // A reorg that drops the failure changes it
@@ -324,6 +340,55 @@ BOOST_AUTO_TEST_CASE(parent_chain_bundles)
     BOOST_CHECK(!view.TakeBundleChanges());
     BOOST_CHECK(status(BundleOutcome::FAILED) == DepositStatus::OK);
     BOOST_CHECK(view.IsOutcomeFinal(m6id));
+}
+
+BOOST_AUTO_TEST_CASE(checkpoint)
+{
+    FakeParentChain parent{m_rng};
+    ParentChainView view{parent, /*slot=*/83, /*min_depth=*/3};
+    const auto success{[&](std::optional<BundleCommitment> commitment) {
+        return BundleEvent{.m6id = m_rng.rand256(), .kind = BundleEvent::Kind::SUCCEEDED, .block_hash = {}, .height = 0, .commitment = commitment};
+    }};
+    const BundleCommitment first{m_rng.rand256(), 10}, second{m_rng.rand256(), 20};
+
+    // A success's block is the checkpoint once it has 3 confirmations
+    parent.Mine({}, {}, {success(first)});
+    view.Update();
+    BOOST_CHECK(!view.Checkpoint());
+    for (int i = 0; i < 3; ++i) parent.Mine();
+    view.Update();
+    BOOST_CHECK(view.Checkpoint() == first);
+
+    // The latest one is; others' M6s (without our commitment) don't count
+    const uint256 second_in{parent.Mine({}, {}, {success(second), success(std::nullopt)})};
+    for (int i = 0; i < 3; ++i) parent.Mine({}, {}, {success(std::nullopt)});
+    view.Update();
+    BOOST_CHECK(view.Checkpoint() == second);
+
+    // A parent chain reorg can take it away
+    parent.tip = parent.blocks.at(second_in).header.prev;
+    for (int i = 0; i < 5; ++i) parent.Mine();
+    view.Update();
+    BOOST_CHECK(view.Checkpoint() == first);
+
+    // Chains violate it if they reach its height with another block
+    std::vector<uint256> hashes(30);
+    std::vector<CBlockIndex> chain(30), fork(30);
+    for (int height = 0; height < 30; ++height) {
+        hashes[height] = height == 10 ? first.block_hash : m_rng.rand256();
+        chain[height].nHeight = fork[height].nHeight = height;
+        chain[height].phashBlock = &hashes[height];
+        chain[height].pprev = height ? &chain[height - 1] : nullptr;
+        // The fork leaves the chain after height 5
+        fork[height].phashBlock = height <= 5 ? &hashes[height] : &hashes[(height + 15) % 30];
+        fork[height].pprev = height ? (height <= 6 ? &chain[height - 1] : &fork[height - 1]) : nullptr;
+    }
+    BOOST_CHECK(!ViolatesCheckpoint(chain[29], first));
+    BOOST_CHECK(!ViolatesCheckpoint(chain[10], first));
+    BOOST_CHECK(!ViolatesCheckpoint(fork[9], first)); // below it: may still lead to it, through a reorg
+    BOOST_CHECK(ViolatesCheckpoint(fork[10], first));
+    BOOST_CHECK(ViolatesCheckpoint(fork[29], first));
+    BOOST_CHECK(!ViolatesCheckpoint(fork[29], std::nullopt));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

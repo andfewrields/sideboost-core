@@ -53,7 +53,12 @@
  * Nodes check it against their view of the parent chain, as deposits.  A
  * success removes the bundle's withdrawals from the queue (their coins have
  * left this chain); a failure puts them back at its head, so the next bundle
- * takes them again.  The queue's state is a coin too (WithdrawalState), so
+ * takes them again.
+ *
+ * A bundle's M6 commits to the block that created it.  Once the parent chain
+ * has paid a bundle out, that block is a checkpoint: chains without it are
+ * invalid (see ParentChainView::Checkpoint), so no reorg can undo the
+ * withdrawals' removal from this chain after they were paid.  The queue's state is a coin too (WithdrawalState), so
  * the UTXO set, undo data and the coinstatsindex cover it all.
  */
 namespace drivechain {
@@ -152,13 +157,24 @@ std::optional<WithdrawalState> ParseWithdrawalStateCoin(const Coin& coin);
 /** The withdrawal state of `view` (the initial state if none is recorded).  */
 WithdrawalState ReadWithdrawalState(const CCoinsViewCache& view);
 
+/** The block that created a bundle, to which its M6 commits.  */
+struct BundleCommitment {
+    uint256 block_hash;
+    int height{0};
+
+    bool operator==(const BundleCommitment&) const = default;
+};
+
 /** The blinded M6 (BIP300) paying `withdrawals` in a bundle created by block
- *  `block_hash`: no inputs, then outputs
- *    0: 0, OP_RETURN <total fee, 8 bytes BE>  (the treasury, once mined)
- *    1: 0, OP_RETURN <block_hash>             (makes the M6ID unique)
+ *  `commitment`: no inputs, then outputs
+ *    0: 0, OP_RETURN <total fee, 8 bytes BE>     (the treasury, once mined)
+ *    1: 0, OP_RETURN <block hash, height 4 LE>   (makes the M6ID unique)
  *    2...: the payouts, in queue order
  *  Its txid is the bundle's M6ID.  */
-CTransactionRef MakeBlindedM6(std::span<const Withdrawal> withdrawals, const uint256& block_hash);
+CTransactionRef MakeBlindedM6(std::span<const Withdrawal> withdrawals, const BundleCommitment& commitment);
+
+/** The block an M6 (blinded or not) commits to, if it's one of this chain's.  */
+std::optional<BundleCommitment> ParseBundleCommitment(const CTransaction& m6);
 
 /** The pending bundle's withdrawals, or nullopt if there's no bundle (or the
  *  view is inconsistent).  */

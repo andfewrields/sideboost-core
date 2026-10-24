@@ -5,6 +5,7 @@
 #include <drivechain/enforcer.h>
 
 #include <compat/compat.h>
+#include <core_io.h>
 #include <netaddress.h>
 #include <netbase.h>
 #include <streams.h>
@@ -98,12 +99,17 @@ void ParseEvents(const UniValue& block_info, const ParentHeader& header, ParentE
             // The M6ID in consensus (txid byte) order
             const auto m6id{TryParseHex<unsigned char>(Field(Field(withdrawal, "m6id"), "hex").getValStr())};
             if (!m6id || m6id->size() != uint256::size()) throw DepositSourceError("enforcer reply: bad m6id");
-            BundleEvent bundle_event{.m6id = uint256{*m6id}, .block_hash = header.hash, .height = header.height};
+            BundleEvent bundle_event{.m6id = uint256{*m6id}, .block_hash = header.hash, .height = header.height, .commitment = std::nullopt};
             const UniValue& kind{Field(withdrawal, "event")};
             if (const UniValue& succeeded{Field(kind, "succeeded")}; !succeeded.isNull()) {
                 // A treasury event too
                 res.treasury.push_back({U64Field(succeeded, "sequenceNumber"), header.hash, header.height, std::nullopt});
                 bundle_event.kind = BundleEvent::Kind::SUCCEEDED;
+                // The M6, which commits to a block of this chain if it's one
+                // of this chain's
+                if (CMutableTransaction m6; DecodeHexTx(m6, Field(Field(succeeded, "transaction"), "hex").getValStr())) {
+                    bundle_event.commitment = ParseBundleCommitment(CTransaction{m6});
+                }
             } else if (!Field(kind, "failed").isNull()) {
                 bundle_event.kind = BundleEvent::Kind::FAILED;
             } else if (!Field(kind, "submitted").isNull()) {

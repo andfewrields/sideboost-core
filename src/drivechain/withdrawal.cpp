@@ -206,7 +206,7 @@ WithdrawalState ReadWithdrawalState(const CCoinsViewCache& view)
     return *Assert(ParseWithdrawalStateCoin(coin));
 }
 
-CTransactionRef MakeBlindedM6(std::span<const Withdrawal> withdrawals, const uint256& block_hash)
+CTransactionRef MakeBlindedM6(std::span<const Withdrawal> withdrawals, const BundleCommitment& commitment)
 {
     CAmount fee{0};
     for (const Withdrawal& withdrawal : withdrawals) fee += withdrawal.fee;
@@ -216,9 +216,26 @@ CTransactionRef MakeBlindedM6(std::span<const Withdrawal> withdrawals, const uin
     tx.version = 2;
     tx.nLockTime = 0;
     tx.vout.emplace_back(0, CScript() << OP_RETURN << fee_be);
-    tx.vout.emplace_back(0, CScript() << OP_RETURN << std::vector<unsigned char>(block_hash.begin(), block_hash.end()));
+    std::vector<unsigned char> block(commitment.block_hash.begin(), commitment.block_hash.end());
+    block.resize(36);
+    WriteLE32(block.data() + 32, static_cast<uint32_t>(commitment.height));
+    tx.vout.emplace_back(0, CScript() << OP_RETURN << block);
     for (const Withdrawal& withdrawal : withdrawals) tx.vout.emplace_back(withdrawal.payout, withdrawal.payout_script);
     return MakeTransactionRef(std::move(tx));
+}
+
+std::optional<BundleCommitment> ParseBundleCommitment(const CTransaction& m6)
+{
+    if (m6.vout.size() < 2 || m6.vout[1].nValue != 0) return std::nullopt;
+    const CScript& script{m6.vout[1].scriptPubKey};
+    CScript::const_iterator pc{script.begin()};
+    if (!NextOp(script, pc, OP_RETURN)) return std::nullopt;
+    const auto block{NextPush(script, pc)};
+    if (!block || block->size() != 36 || pc != script.end()) return std::nullopt;
+    const int height{static_cast<int32_t>(ReadLE32(block->data() + 32))};
+    if (height < 0) return std::nullopt;
+    BundleCommitment res{.block_hash = uint256{std::span{*block}.first(32)}, .height = height};
+    return res;
 }
 
 std::optional<std::vector<Withdrawal>> BundleWithdrawals(const CCoinsViewCache& view, const WithdrawalState& state)
@@ -237,7 +254,7 @@ CTransactionRef PendingBlindedM6(const CCoinsViewCache& view, const WithdrawalSt
 {
     const auto withdrawals{BundleWithdrawals(view, state)};
     if (!withdrawals) return nullptr;
-    return MakeBlindedM6(*withdrawals, state.bundle->block_hash);
+    return MakeBlindedM6(*withdrawals, {state.bundle->block_hash, state.bundle->height});
 }
 
 CTransactionRef MakeBundleOutcomeTransaction(const uint256& m6id, BundleOutcome outcome)

@@ -10,12 +10,15 @@
 #include <sync.h>
 #include <uint256.h>
 
+#include <condition_variable>
 #include <cstdint>
 #include <map>
 #include <optional>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
+class CBlockIndex;
 class ChainstateManager;
 
 /**
@@ -82,6 +85,9 @@ struct BundleEvent {
     /** The parent chain block it happened in.  */
     uint256 block_hash;
     int height{0};
+    /** For a success, the block of this chain its M6 commits to, if it's one
+     *  of this chain's M6s.  */
+    std::optional<BundleCommitment> commitment;
 
     /** The same event, wherever it happened.  */
     bool SameAs(const BundleEvent& other) const { return m6id == other.m6id && kind == other.kind; }
@@ -182,6 +188,10 @@ public:
      *  DEPOSIT_FINALITY_DEPTH deep or deeper.  */
     bool IsOutcomeFinal(const uint256& m6id) const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
+    /** The block of this chain the parent chain paid out a bundle from last
+     *  (with enough confirmations): valid chains contain it.  */
+    std::optional<BundleCommitment> Checkpoint() const EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
     /** Propose withdrawal bundle `blinded_m6` to the parent chain, unless it
      *  was proposed since the view last moved to a new tip, or the view knows
      *  how it ended (proposing it again could pay it out twice).  Throws
@@ -213,11 +223,37 @@ private:
     const BundleEvent* Outcome(const uint256& m6id) const EXCLUSIVE_LOCKS_REQUIRED(m_mutex);
 };
 
+/** Whether a chain ending at `index` lacks the `checkpoint` block: it reaches
+ *  the checkpoint's height with another block.  */
+bool ViolatesCheckpoint(const CBlockIndex& index, const std::optional<BundleCommitment>& checkpoint);
+
 /** Bring the node in line with its view of the parent chain: invalidate the
  *  active chain's blocks that record deposits or bundle outcomes the parent
- *  chain no longer has, make valid again blocks whose events are back, and
- *  propose the pending withdrawal bundle.  */
+ *  chain no longer has, or that lack its checkpoint, make valid again blocks
+ *  whose events are back, and propose the pending withdrawal bundle.  */
 void SyncWithParentChain(ChainstateManager& chainman);
+
+/** Runs SyncWithParentChain on a thread of its own, whenever triggered.  Not
+ *  on the scheduler's thread: a reorg waits for the validation callbacks
+ *  queued, which that thread runs.  */
+class ParentChainSync
+{
+public:
+    explicit ParentChainSync(ChainstateManager& chainman);
+    /** Stops the thread.  */
+    ~ParentChainSync();
+
+    /** Have the thread run SyncWithParentChain (again) soon.  */
+    void Trigger() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+private:
+    ChainstateManager& m_chainman;
+    Mutex m_mutex;
+    std::condition_variable m_cv;
+    bool m_triggered GUARDED_BY(m_mutex){false};
+    bool m_stop GUARDED_BY(m_mutex){false};
+    std::thread m_thread;
+};
 
 } // namespace drivechain
 

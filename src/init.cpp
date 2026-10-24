@@ -348,6 +348,8 @@ void Shutdown(NodeContext& node)
     }
 
     if (node.background_init_thread.joinable()) node.background_init_thread.join();
+    // Before the scheduler, which runs the validation callbacks it may wait for
+    node.parent_chain_sync.reset();
     // After everything has been shut down, but before things get flushed, stop the
     // the scheduler. After this point, SyncWithValidationInterfaceQueue() should not be called anymore
     // as this would prevent the shutdown from completing.
@@ -1972,7 +1974,8 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         // Follow parent chain reorgs, and retry blocks whose deposits our
         // view of the parent chain couldn't check yet (enforcer unreachable
         // or behind)
-        scheduler.scheduleEvery([&chainman] { drivechain::SyncWithParentChain(chainman); }, drivechain::DEPOSIT_RETRY_INTERVAL);
+        node.parent_chain_sync = std::make_unique<drivechain::ParentChainSync>(chainman);
+        scheduler.scheduleEvery([&node] { node.parent_chain_sync->Trigger(); }, drivechain::DEPOSIT_RETRY_INTERVAL);
     }
 
     assert(!node.fee_estimator_man);

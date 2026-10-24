@@ -2709,6 +2709,18 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         m_last_script_check_reason_logged = script_check_reason;
     }
 
+    // Chains lacking the block the parent chain last paid out a bundle from
+    // are invalid (see drivechain/withdrawal.h)
+    if (const auto* const parent{m_chainman.m_options.parent_chain}) {
+        if (const auto checkpoint{parent->Checkpoint()}; drivechain::ViolatesCheckpoint(*pindex, checkpoint)) {
+            if (!fJustCheck) SetParentChainFailure(*pindex, true);
+            state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-parent-checkpoint",
+                          strprintf("the parent chain paid out a bundle from block %s at height %d", checkpoint->block_hash.ToString(), checkpoint->height));
+            LogInfo("Block validation error: %s", state.ToString());
+            return false;
+        }
+    }
+
     if (bool parent_dependent{false}; !CheckDeposits(block, view, m_chainman.m_options.parent_chain, state, parent_dependent) ||
                                       !CheckBundleOutcome(block, view, m_chainman.m_options.parent_chain, state, parent_dependent)) {
         // Checked again when the parent chain changes

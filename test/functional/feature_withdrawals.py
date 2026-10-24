@@ -8,7 +8,8 @@ Runs a parent chain as feature_deposits.py does.  Withdraws coins deposited
 from it, and checks that SideBoost nodes bundle the withdrawals, propose the
 bundle to the enforcer, record its success once the parent chain pays it out,
 bundle its withdrawals again when it fails, reject blocks that record
-outcomes wrongly, and follow a parent chain reorg that drops a payout.
+outcomes wrongly, follow a parent chain reorg that drops a payout, and
+return to the block that created a bundle the parent chain paid out.
 """
 
 from decimal import Decimal
@@ -89,7 +90,7 @@ class WithdrawalsTest(ParentChainTest, BitcoinTestFramework):
         self.ecx_mine()
         self.confirm()
         self.generate(node0, 1)
-        assert_equal(node0.getwithdrawals(), {"waiting": 0, "withdrawals": []})
+        assert_equal(node0.getwithdrawals() | {"checkpoint": None}, {"waiting": 0, "withdrawals": [], "checkpoint": None})
 
         self.log.info("A withdrawal is bundled by the block that requests it")
         ecx_addr1 = self.ecx.getnewaddress()
@@ -110,7 +111,7 @@ class WithdrawalsTest(ParentChainTest, BitcoinTestFramework):
 
         self.log.info("Disconnecting the block undoes it, connecting it again redoes it")
         node0.invalidateblock(block1)
-        assert_equal(node0.getwithdrawals(), {"waiting": 0, "withdrawals": []})
+        assert_equal(node0.getwithdrawals() | {"checkpoint": None}, {"waiting": 0, "withdrawals": [], "checkpoint": None})
         assert txid1 in node0.getrawmempool()
         node0.reconsiderblock(block1)
         assert_equal(node0.getwithdrawals(), withdrawals)
@@ -180,7 +181,7 @@ class WithdrawalsTest(ParentChainTest, BitcoinTestFramework):
         paid_in = self.mine_until_paid(ecx_addr2, Decimal("0.5"))
         success3 = self.record_outcome(bundle3["m6id"], True)
         self.sync_blocks()
-        assert_equal(node1.getwithdrawals(), {"waiting": 0, "withdrawals": []})
+        assert_equal(node1.getwithdrawals() | {"checkpoint": None}, {"waiting": 0, "withdrawals": [], "checkpoint": None})
 
         self.log.info("A parent chain reorg that drops the payout invalidates the block that recorded it")
         new_branch = self.ecx_reorg(paid_in, [])
@@ -197,7 +198,51 @@ class WithdrawalsTest(ParentChainTest, BitcoinTestFramework):
         self.sync_parent_chain()
         for node in self.nodes:
             self.wait_until(lambda: node.getbestblockhash() == success3)
-            assert_equal(node.getwithdrawals(), {"waiting": 0, "withdrawals": []})
+            assert_equal(node.getwithdrawals() | {"checkpoint": None}, {"waiting": 0, "withdrawals": [], "checkpoint": None})
+
+        self.log.info("Valid chains contain the block the parent chain last paid out a bundle from")
+        checkpoint = {"blockhash": bundle3["blockhash"], "height": node0.getblockheader(bundle3["blockhash"])["height"]}
+        assert_equal(node0.getwithdrawals()["checkpoint"], checkpoint)
+        ecx_addr3 = self.ecx.getnewaddress()
+        txid3 = node0.withdraw(ecx_addr3, Decimal("0.25"))
+        stale_block = self.generate(node0, 1)[0]
+        stale = node0.getwithdrawals()["bundle"]
+        self.wait_for_proposal(stale["m6id"])
+        # node1 replaces the bundle's block by a longer branch, which bundles
+        # the withdrawal again
+        self.disconnect_nodes(0, 1)
+        node1.invalidateblock(stale_block)
+        node1.sendrawtransaction(node0.getrawtransaction(txid3, False, stale_block))
+        branch = self.generate(node1, node0.getblockcount() - node1.getblockcount() + 5, sync_fun=self.no_op)
+        node1.reconsiderblock(stale_block)
+        self.connect_nodes(0, 1)
+        self.sync_blocks()
+        assert_equal(node0.getbestblockhash(), branch[-1])
+        replacement = node0.getwithdrawals()["bundle"]
+        assert replacement["m6id"] != stale["m6id"]
+        assert_equal([w["txid"] for w in node0.getwithdrawals()["withdrawals"]], [txid3])
+        # The parent chain pays out the stale bundle: miners vote for it only,
+        # once it's pending there (the enforcer drops other ACKs)
+        self.set_bundle_policy("NONE")
+        self.ecx_mine()
+        m6id_bytes = bytes.fromhex(stale["m6id"])[::-1].hex()  # consensus byte order
+        self.enforcer("BlockProducerService/SetWithdrawalBundleAck", {"sidechainNumber": 83, "m6id": {"hex": m6id_bytes}, "ack": True})
+        self.mine_until_paid(ecx_addr3, Decimal("0.25"))
+        self.confirm()
+        self.sync_parent_chain()
+        for node in self.nodes:
+            self.wait_until(lambda: node.getblockheader(stale_block)["confirmations"] > 0)
+            assert_equal(self.status(node, branch[-1]), "invalid")
+            assert_equal(node.getwithdrawals()["checkpoint"], {"blockhash": stale_block, "height": node0.getblockheader(stale_block)["height"]})
+            assert_equal(node.getwithdrawals()["bundle"]["m6id"], stale["m6id"])
+        # Its payout is recorded there
+        self.record_outcome(stale["m6id"], True)
+        self.sync_blocks()
+        # No block can take the stale block's place
+        node1.invalidateblock(stale_block)
+        assert_raises_rpc_error(-1, "bad-parent-checkpoint", self.generate, node1, 1, sync_fun=self.no_op)
+        node1.reconsiderblock(stale_block)
+        self.sync_blocks()
 
         self.log.info("Both nodes end with the same UTXO set, which node1's coinstatsindex tracked")
         assert_equal(node0.gettxoutsetinfo()["hash_serialized_3"], node1.gettxoutsetinfo()["hash_serialized_3"])

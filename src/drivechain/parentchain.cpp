@@ -12,6 +12,7 @@
 #include <undo.h>
 #include <util/check.h>
 #include <util/string.h>
+#include <util/thread.h>
 #include <validation.h>
 
 #include <algorithm>
@@ -226,6 +227,22 @@ bool ParentChainView::IsOutcomeFinal(const uint256& m6id) const
     return event && Depth(event->height) >= DEPOSIT_FINALITY_DEPTH;
 }
 
+std::optional<BundleCommitment> ParentChainView::Checkpoint() const
+{
+    LOCK(m_mutex);
+    if (!m_tip) return std::nullopt;
+    for (auto it{m_bundle_events.rbegin()}; it != m_bundle_events.rend(); ++it) {
+        if (it->kind == BundleEvent::Kind::SUCCEEDED && it->commitment && Depth(it->height) >= m_min_depth) return it->commitment;
+    }
+    return std::nullopt;
+}
+
+bool ViolatesCheckpoint(const CBlockIndex& index, const std::optional<BundleCommitment>& checkpoint)
+{
+    return checkpoint && index.nHeight >= checkpoint->height &&
+           Assert(index.GetAncestor(checkpoint->height))->GetBlockHash() != checkpoint->block_hash;
+}
+
 void ParentChainView::ProposeBundle(const CTransaction& blinded_m6)
 {
     const uint256 m6id{blinded_m6.GetHash().ToUint256()};
@@ -246,9 +263,12 @@ std::span<const CTransactionRef> Deposits(const CBlock& block)
     return std::span{block.vtx}.subspan(1, end - 1);
 }
 
-/** Whether the view has the parent chain events `block` records.  */
-bool HasEvents(const ParentChainView& parent, const CBlock& block)
+/** Whether `block` (of `index`) is valid as far as the view is concerned: the
+ *  view has the parent chain events it records, and its chain the
+ *  checkpoint.  */
+bool HasEvents(const ParentChainView& parent, const CBlock& block, const CBlockIndex& index)
 {
+    if (ViolatesCheckpoint(index, parent.Checkpoint())) return false;
     if (!std::ranges::all_of(Deposits(block), [&](const auto& tx) { return parent.CheckDeposit(*tx) == DepositStatus::OK; })) return false;
     const auto outcome{BundleOutcomeIndex(block)};
     return !outcome || parent.CheckBundleOutcome(*block.vtx[*outcome]) == DepositStatus::OK;
@@ -372,7 +392,7 @@ void SyncWithParentChain(ChainstateManager& chainman)
         for (auto& [_, index] : chainman.m_blockman.m_block_index) {
             if (!(index.nStatus & BLOCK_FAILED_PARENT_CHAIN)) continue;
             CBlock block;
-            if (!chainman.m_blockman.ReadBlock(block, index) || !HasEvents(*parent, block)) continue;
+            if (!chainman.m_blockman.ReadBlock(block, index) || !HasEvents(*parent, block, index)) continue;
             LogInfo("The parent chain has the events of block %s again", index.GetBlockHash().ToString());
             chainstate.SetParentChainFailure(index, false);
             chainstate.ResetBlockFailureFlags(&index);
@@ -381,9 +401,9 @@ void SyncWithParentChain(ChainstateManager& chainman)
         if (reconsidered) chainman.RecalculateBestHeader();
     }
 
-    if (changed || bundles_changed) {
+    {
         // The earliest block of the active chain recording an event the
-        // parent chain no longer has
+        // parent chain no longer has, or lacking its checkpoint
         CBlockIndex* invalid{nullptr};
         {
             LOCK(cs_main);
@@ -392,9 +412,14 @@ void SyncWithParentChain(ChainstateManager& chainman)
                 CBlockIndex* const outcome{FirstLostOutcome(chainman, *parent)};
                 if (outcome && (!invalid || outcome->nHeight < invalid->nHeight)) invalid = outcome;
             }
+            if (const auto checkpoint{parent->Checkpoint()}; checkpoint && ViolatesCheckpoint(*chainstate.m_chain.Tip(), checkpoint)) {
+                CBlockIndex* const other{chainstate.m_chain[checkpoint->height]};
+                LogInfo("The parent chain paid out a bundle from block %s at height %d, which the active chain lacks", checkpoint->block_hash.ToString(), checkpoint->height);
+                if (!invalid || other->nHeight < invalid->nHeight) invalid = other;
+            }
         }
         if (invalid) {
-            LogInfo("The parent chain no longer has an event recorded by block %s: invalidating it", invalid->GetBlockHash().ToString());
+            LogInfo("Block %s is invalid in our view of the parent chain: invalidating it", invalid->GetBlockHash().ToString());
             BlockValidationState state;
             if (chainstate.InvalidateBlock(state, invalid)) {
                 LOCK(cs_main);
@@ -412,6 +437,33 @@ void SyncWithParentChain(ChainstateManager& chainman)
     }
 
     ProposePendingBundle(chainman, *parent);
+}
+
+ParentChainSync::ParentChainSync(ChainstateManager& chainman) : m_chainman{chainman}
+{
+    m_thread = std::thread(&util::TraceThread, "parentchain", [this] {
+        WAIT_LOCK(m_mutex, lock);
+        while (true) {
+            m_cv.wait(lock, [&]() EXCLUSIVE_LOCKS_REQUIRED(m_mutex) { return m_triggered || m_stop; });
+            if (m_stop) return;
+            m_triggered = false;
+            REVERSE_LOCK(lock, m_mutex);
+            SyncWithParentChain(m_chainman);
+        }
+    });
+}
+
+ParentChainSync::~ParentChainSync()
+{
+    WITH_LOCK(m_mutex, m_stop = true);
+    m_cv.notify_one();
+    if (m_thread.joinable()) m_thread.join();
+}
+
+void ParentChainSync::Trigger()
+{
+    WITH_LOCK(m_mutex, m_triggered = true);
+    m_cv.notify_one();
 }
 
 } // namespace drivechain
