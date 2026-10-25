@@ -106,7 +106,7 @@ MAGIC_BYTES = {
     "mainnet": b"\xfb\xc0\xb5\xe3",   # mainnet
     "test": b"\xfc\xc1\xb6\xe4",  # testnet
     "regtest": b"\xfa\xbf\xb5\xda",   # regtest
-    "signet": b"\x0a\x03\xcf\x40",    # signet
+    "signet": b"\x36\x34\x69\xbb",    # signet (SideBoost: no default; that of its placeholder challenge, OP_RETURN)
 }
 
 # Constants for the auxpow block version.
