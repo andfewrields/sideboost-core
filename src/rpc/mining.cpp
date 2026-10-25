@@ -10,6 +10,7 @@
 
 #include <addresstype.h>
 #include <arith_uint256.h>
+#include <bip300/messages.h>
 #include <chain.h>
 #include <chainparams.h>
 #include <coins.h>
@@ -418,6 +419,16 @@ static RPCMethod generateblock()
             block = block_template->getBlock();
         }
 
+        // SideBoost: none of the node's own part for its sidechains (coinbase
+        // messages and the payouts they require), but these transactions
+        std::erase_if(block.vtx, [](const CTransactionRef& tx) { return tx->IsSidechainPayout(); });
+        {
+            const int height{chainman.ActiveChain().Height() + 1};
+            CMutableTransaction coinbase{*block.vtx[0]};
+            std::erase_if(coinbase.vout, [](const CTxOut& out) { return bip300::ParseCoinbaseMessage(out.scriptPubKey).has_value(); });
+            SetCoinbaseReward(coinbase, GetBlockSubsidy(height, chainman.GetConsensus()), chainman.GetConsensus());
+            block.vtx[0] = MakeTransactionRef(std::move(coinbase));
+        }
         CHECK_NONFATAL(block.vtx.size() == 1);
 
         // Add transactions
@@ -430,8 +441,11 @@ static RPCMethod generateblock()
             CCoinsViewCache view{&chainman.ActiveChainstate().CoinsTip()};
             CAmount fees{0};
             for (const CTransactionRef& tx : txs) {
-                // Unknown inputs fail TestBlockValidity below
-                if (!tx->IsParentChainEvent() && view.HaveInputs(*tx)) {
+                // Unknown inputs fail TestBlockValidity below; a payout pays
+                // its fee out of a sidechain's treasury
+                if (tx->IsSidechainPayout()) {
+                    fees += bip300::ParseM6Fee(*tx).value_or(0);
+                } else if (!tx->IsParentChainEvent() && view.HaveInputs(*tx)) {
                     for (const CTxIn& in : tx->vin) fees += view.AccessCoin(in.prevout).out.nValue;
                     fees -= tx->GetValueOut();
                 }
@@ -740,6 +754,10 @@ static RPCMethod getblocktemplate()
                 {
                     {RPCResult::Type::STR_HEX, "script", "the output script"},
                     {RPCResult::Type::NUM, "amount", "the least it must be paid (in satoshis)"},
+                }},
+                {RPCResult::Type::ARR, "sidechainmessages", /*optional=*/true, "messages for this chain's sidechains (BIP300/301), which the coinbase must have as outputs of value 0, in this order, for the block to be valid with its transactions (absent if there are none)",
+                {
+                    {RPCResult::Type::STR_HEX, "", "an output script"},
                 }},
                 {RPCResult::Type::STR, "longpollid", "an id to include with a request to longpoll on an update to this template"},
                 {RPCResult::Type::STR, "target", "The hash target"},
@@ -1091,10 +1109,18 @@ static RPCMethod getblocktemplate()
         result.pushKV("signet_challenge", HexStr(consensusParams.signet_challenge));
     }
 
-    // SideBoost: besides the dev tax output, shown as devtax
+    // SideBoost: besides the dev tax output, shown as devtax, and the
+    // sidechain messages
     const CScript dev_script(consensusParams.dev_tax_script.begin(), consensusParams.dev_tax_script.end());
     auto coinbase{block_template->getCoinbaseTx()};
     std::erase_if(coinbase.required_outputs, [&](const CTxOut& out) { return !dev_script.empty() && out.scriptPubKey == dev_script; });
+    UniValue sidechain_messages{UniValue::VARR};
+    std::erase_if(coinbase.required_outputs, [&](const CTxOut& out) {
+        if (!bip300::ParseCoinbaseMessage(out.scriptPubKey)) return false;
+        sidechain_messages.push_back(HexStr(out.scriptPubKey));
+        return true;
+    });
+    if (!sidechain_messages.empty()) result.pushKV("sidechainmessages", std::move(sidechain_messages));
     if (coinbase.required_outputs.size() > 0) {
         CHECK_NONFATAL(coinbase.required_outputs.size() == 1); // Only one output is currently expected
         result.pushKV("default_witness_commitment", HexStr(coinbase.required_outputs[0].scriptPubKey));

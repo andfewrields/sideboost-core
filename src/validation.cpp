@@ -14,6 +14,9 @@
 #include <clientversion.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <bip300/messages.h>
+#include <bip300/rules.h>
+#include <bip300/state.h>
 #include <consensus/devtax.h>
 #include <consensus/merkle.h>
 #include <consensus/tx_check.h>
@@ -352,6 +355,8 @@ void Chainstate::MaybeUpdateMempoolForReorg(
     // If true, the tx would be invalid in the next block; remove this entry and all of its descendants.
     // Note that TRUC rules are not applied here, so reorgs may cause violations of TRUC inheritance or
     // topology restrictions.
+    // Our sidechains, read when a deposit needs them
+    std::optional<std::optional<bip300::State>> sidechains;
     const auto filter_final_and_mature = [&](CTxMemPool::txiter it)
         EXCLUSIVE_LOCKS_REQUIRED(m_mempool->cs, ::cs_main) {
         AssertLockHeld(m_mempool->cs);
@@ -377,6 +382,18 @@ void Chainstate::MaybeUpdateMempoolForReorg(
             } else {
                 return true;
             }
+        }
+
+        // A BMM request must be made on the tip, a deposit to one of our
+        // sidechains go to an active slot (a reorg can undo an activation)
+        if (const auto request{bip300::ParseBmmRequest(tx)}; request && request->prev_block != m_chain.Tip()->GetBlockHash()) {
+            return true;
+        }
+        for (const CTxOut& out : tx.vout) {
+            if (!bip300::IsDepositScript(out.scriptPubKey)) continue;
+            if (!sidechains) sidechains = bip300::ReadState(CoinsTip());
+            const auto deposit{bip300::ParseDeposit(out)};
+            if (!deposit || !*sidechains || !(*sidechains)->FindSidechain(deposit->slot)) return true;
         }
 
         // If the transaction spends any coinbase outputs, it must be mature.
@@ -809,6 +826,28 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "deposit");
     if (tx.IsParentChainEvent())
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "bundle-outcome");
+    // And payouts from our sidechains, which miners add (bip300/rules.h)
+    if (tx.IsSidechainPayout())
+        return state.Invalid(TxValidationResult::TX_CONSENSUS, "sidechain-payout");
+
+    // Deposits to our sidechains, only to active slots (which stay active);
+    // BMM requests, only for a block on the tip
+    if (std::ranges::any_of(tx.vout, [](const CTxOut& out) { return bip300::IsDepositScript(out.scriptPubKey); })) {
+        const auto sidechains{bip300::ReadState(m_active_chainstate.CoinsTip())};
+        for (const CTxOut& out : tx.vout) {
+            if (!bip300::IsDepositScript(out.scriptPubKey)) continue;
+            const auto deposit{bip300::ParseDeposit(out)};
+            if (!deposit) return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-sidechain-deposit");
+            if (!sidechains || !sidechains->FindSidechain(deposit->slot)) {
+                return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-sidechain-deposit-inactive");
+            }
+        }
+    }
+    if (const auto request{bip300::ParseBmmRequest(tx)}) {
+        if (request->prev_block != m_active_chainstate.m_chain.Tip()->GetBlockHash()) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "bmm-request-stale");
+        }
+    }
 
     // Withdrawals, which must pay out more than dust on the parent chain
     for (const CTxOut& out : tx.vout) {
@@ -2290,6 +2329,12 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
     bool fEnforceBIP30 = !((pindex->nHeight==91722 && pindex->GetBlockHash() == uint256{"00000000000271a2dc26e7667f8419f2e15416dc6955e5a6c6cdf3f2574dd08e"}) ||
                            (pindex->nHeight==91812 && pindex->GetBlockHash() == uint256{"00000000000af0aed4792b1acee3d966af36cf5def14935db8de83d6f9306f2f"}));
 
+    // The sidechain state, which ConnectBlock wrote last
+    if (!bip300::UndoStateChanges(view, blockUndo.vstate)) {
+        LogError("DisconnectBlock(): sidechain state inconsistent\n");
+        return DISCONNECT_FAILED;
+    }
+
     // The block's withdrawals (its bundle outcome's undo data among them)
     if (!drivechain::DisconnectWithdrawals(block, blockUndo, pindex->nHeight, pindex->GetBlockHash(), view)) {
         LogError("DisconnectBlock(): withdrawal state inconsistent\n");
@@ -2321,8 +2366,9 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
         // restore inputs
         if (i > 0) { // not coinbases
             CTxUndo &txundo = blockUndo.vtxundo[i-1];
-            // A bundle outcome spent nothing; DisconnectWithdrawals undid it
-            if (tx.IsBundleOutcome()) continue;
+            // A bundle outcome spent nothing; DisconnectWithdrawals undid it.
+            // A payout spent a sidechain treasury, which the state undid.
+            if (tx.IsBundleOutcome() || tx.IsSidechainPayout()) continue;
             if (txundo.vprevout.size() != tx.vin.size()) {
                 LogError("DisconnectBlock(): transaction and undo data inconsistent\n");
                 return DISCONNECT_FAILED;
@@ -2727,6 +2773,22 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         return false;
     }
 
+    // Our own sidechains: the block's messages, deposits, payouts and BMM
+    // requests (bip300/rules.h).  Its payouts are checked here, so the loop
+    // below takes their fees and adds their outputs without more checks.
+    const auto sidechains_before{bip300::ReadState(view)};
+    if (!sidechains_before) {
+        LogError("ConnectBlock(): sidechain state corrupt\n");
+        return FatalError(m_chainman.GetNotifications(), state, _("Corrupted sidechain state in the UTXO set."));
+    }
+    bip300::State sidechains{*sidechains_before};
+    const auto proposed{[&view](uint8_t slot, const uint256& m6id) { return view.HaveCoin(bip300::ProposedBundleOutpoint(slot, m6id)); }};
+    bip300::BlockEvents sidechain_events;
+    if (!bip300::ConnectBlock(block, pindex->nHeight, params.GetConsensus().sidechains, proposed, sidechains, state, &sidechain_events)) {
+        LogInfo("Block validation error: %s", state.ToString());
+        return false;
+    }
+
     CBlockUndo blockundo;
 
     // Precomputed transaction data pointers must not be invalidated
@@ -2752,8 +2814,19 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         // Checked by CheckDeposits and CheckBundleOutcome: records a parent
         // chain event, spends nothing
         const bool is_event{tx.IsParentChainEvent()};
+        // Checked by bip300::ConnectBlock: pays its fee out of a sidechain's
+        // treasury, which has no script
+        const bool is_payout{tx.IsSidechainPayout()};
+        if (is_payout) {
+            nFees += *Assert(bip300::ParseM6Fee(tx));
+            if (!MoneyRange(nFees)) {
+                state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-accumulated-fee-outofrange",
+                              "accumulated fee in the block out of range");
+                break;
+            }
+        }
 
-        if (!tx.IsCoinBase() && !is_event)
+        if (!tx.IsCoinBase() && !is_event && !is_payout)
         {
             CAmount txfee = 0;
             TxValidationState tx_state;
@@ -2796,7 +2869,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
             break;
         }
 
-        if (!tx.IsCoinBase() && !is_event && fScriptChecks)
+        if (!tx.IsCoinBase() && !is_event && !is_payout && fScriptChecks)
         {
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
             bool tx_ok;
@@ -2824,6 +2897,9 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         }
         if (tx.IsDeposit()) {
             drivechain::UpdateCoinsForDeposit(tx, view, blockundo.vtxundo.back(), pindex->nHeight);
+        } else if (is_payout) {
+            // The treasury is updated with the sidechain state, below
+            AddCoins(view, tx, pindex->nHeight);
         } else if (!is_event) {
             UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
         } // A bundle outcome is applied with the block's withdrawals, below
@@ -2835,6 +2911,16 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         const auto outcome{drivechain::BundleOutcomeIndex(block)};
         if (!drivechain::ConnectWithdrawals(block, pindex->nHeight, block_hash, view, outcome ? &blockundo.vtxundo.at(*outcome - 1) : nullptr)) {
             state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-withdrawal-state", "withdrawal queue inconsistent with the block");
+        }
+    }
+    // The sidechain state the block leaves
+    if (state.IsValid()) {
+        blockundo.vstate = bip300::WriteState(view, *sidechains_before, sidechains, pindex->nHeight);
+        if (!sidechain_events.empty()) {
+            DataStream events;
+            events << sidechain_events;
+            const auto bytes{MakeUCharSpan(events)};
+            blockundo.sidechain_events.assign(bytes.begin(), bytes.end());
         }
     }
     const auto time_3{SteadyClock::now()};
@@ -3334,6 +3420,7 @@ bool Chainstate::ConnectTip(
     if (m_mempool) {
         txs_removed_for_block = m_mempool->removeForBlock(block_to_connect->vtx);
         disconnectpool.removeForBlock(block_to_connect->vtx);
+        m_mempool->removeStaleBmmRequests(pindexNew->GetBlockHash());
     }
     // Update m_chain & related variables.
     m_chain.SetTip(*pindexNew);

@@ -6,6 +6,7 @@
 #include <rpc/mempool.h>
 #include <rpc/register.h> // IWYU pragma: associated
 
+#include <bip300/messages.h>
 #include <common/args.h>
 #include <consensus/amount.h>
 #include <consensus/validation.h>
@@ -136,7 +137,7 @@ static RPCMethod sendrawtransaction()
             }
 
             for (const auto& out : mtx.vout) {
-                if((out.scriptPubKey.IsUnspendable() || !out.scriptPubKey.HasValidOps()) && out.nValue > max_burn_amount && !drivechain::IsWithdrawalScript(out.scriptPubKey)) {
+                if((out.scriptPubKey.IsUnspendable() || !out.scriptPubKey.HasValidOps()) && out.nValue > max_burn_amount && !drivechain::IsWithdrawalScript(out.scriptPubKey) && !bip300::IsDepositScript(out.scriptPubKey)) {
                     throw JSONRPCTransactionError(TransactionError::MAX_BURN_EXCEEDED);
                 }
             }
@@ -1465,7 +1466,7 @@ static RPCMethod submitpackage()
                 }
 
                 for (const auto& out : mtx.vout) {
-                    if((out.scriptPubKey.IsUnspendable() || !out.scriptPubKey.HasValidOps()) && out.nValue > max_burn_amount && !drivechain::IsWithdrawalScript(out.scriptPubKey)) {
+                    if((out.scriptPubKey.IsUnspendable() || !out.scriptPubKey.HasValidOps()) && out.nValue > max_burn_amount && !drivechain::IsWithdrawalScript(out.scriptPubKey) && !bip300::IsDepositScript(out.scriptPubKey)) {
                         throw JSONRPCTransactionError(TransactionError::MAX_BURN_EXCEEDED);
                     }
                 }

@@ -88,6 +88,24 @@ struct BIP9Deployment {
 };
 
 /**
+ * BIP300's voting periods for this chain's own sidechains (see
+ * bip300/state.h), in blocks.  A sidechain activates with more than the
+ * activation threshold of ACKs while its proposal is at most the max age; a
+ * bundle pays out with more than the inclusion threshold of votes while at
+ * most the max age.
+ */
+struct SidechainParams {
+    uint32_t withdrawal_bundle_max_age{0};
+    uint32_t withdrawal_bundle_inclusion_threshold{0};
+    /** A proposal to replace a slot's sidechain.  */
+    uint32_t used_slot_proposal_max_age{0};
+    uint32_t used_slot_activation_threshold{0};
+    /** A proposal for an unused slot.  */
+    uint32_t unused_slot_proposal_max_age{0};
+    uint32_t unused_slot_activation_threshold{0};
+};
+
+/**
  * Parameters that influence chain consensus.
  */
 struct Params {
@@ -116,6 +134,8 @@ struct Params {
     /** The output script the coinbase pays the dev tax to (see
      *  consensus/devtax.h).  Empty: no dev tax.  */
     std::vector<unsigned char> dev_tax_script;
+    /** BIP300 for this chain's own sidechains (always enforced).  */
+    SidechainParams sidechains;
     /**
      * Hashes of blocks that
      * - are known to be consensus valid, and

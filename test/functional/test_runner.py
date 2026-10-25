@@ -121,6 +121,7 @@ BASE_SCRIPTS = [
     'feature_parentchain_pruned.py',
     'feature_devtax.py',
     'feature_minfee.py',
+    'feature_sidechains.py',
     'mempool_updatefromblock.py',
     'mempool_persist.py',
     # vv Tests less than 60s vv

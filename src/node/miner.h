@@ -73,6 +73,12 @@ private:
     int nHeight;
     int64_t m_lock_time_cutoff;
 
+    // Our sidechains' part of the block: coinbase messages, payouts, and the
+    // BMM request (by txid) the block may take in each slot
+    std::vector<CScript> m_sidechain_messages;
+    std::vector<CTransactionRef> m_payouts;
+    std::map<uint8_t, Txid> m_bmm_requests;
+
     const CChainParams& chainparams;
     const CTxMemPool* const m_mempool;
     Chainstate& m_chainstate;
@@ -103,6 +109,14 @@ private:
     void addBundleOutcome() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
     /** Add a parent chain event transaction (spending nothing, paying no fee). */
     void addParentChainEvent(CTransactionRef tx);
+    /** Our sidechains' part of the block: its coinbase messages and the
+     *  payouts they require (bip300/producer.h), with room reserved. */
+    void addSidechainPart() EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
+    /** Pick the best BMM request (bip300/messages.h) per slot in the mempool,
+     *  the only ones the block may take, with room for their M7s. */
+    void chooseBmmRequests() EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
+    /** The payouts addSidechainPart picked, after the mempool's transactions. */
+    void addPayouts();
     /** Add a tx to the block */
     void AddToBlock(const CTxMemPoolEntry& entry);
 

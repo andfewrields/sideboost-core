@@ -6,6 +6,7 @@
 
 #include <addrman.h>
 #include <banman.h>
+#include <bip300/producer.h>
 #include <drivechain/parentchain.h>
 #include <interfaces/chain.h>
 #include <interfaces/mining.h>

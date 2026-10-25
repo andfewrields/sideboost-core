@@ -5,6 +5,9 @@
 
 #include <node/miner.h>
 
+#include <bip300/messages.h>
+#include <bip300/producer.h>
+#include <bip300/state.h>
 #include <chain.h>
 #include <chainparams.h>
 #include <common/args.h>
@@ -51,6 +54,7 @@
 #include <cstddef>
 #include <functional>
 #include <numeric>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -154,6 +158,10 @@ void BlockAssembler::resetBlock()
     // These counters do not include coinbase tx
     nBlockTx = 0;
     nFees = 0;
+
+    m_sidechain_messages.clear();
+    m_payouts.clear();
+    m_bmm_requests.clear();
 }
 
 std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
@@ -190,13 +198,16 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
 
     addDeposits();
     addBundleOutcome();
+    addSidechainPart();
 
     if (m_mempool) {
         LOCK(m_mempool->cs);
+        chooseBmmRequests();
         m_mempool->StartBlockBuilding();
         addChunks();
         m_mempool->StopBlockBuilding();
     }
+    addPayouts();
 
     const auto time_1{SteadyClock::now()};
 
@@ -223,6 +234,15 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     SetCoinbaseReward(coinbaseTx, block_reward, chainparams.GetConsensus());
     coinbase_tx.block_reward_remaining = coinbaseTx.vout[0].nValue;
     const bool dev_tax_output{coinbaseTx.vout.size() > 1};
+
+    // Our sidechains' messages, and an M7 for each BMM request taken
+    std::vector<CScript> sidechain_messages{std::move(m_sidechain_messages)};
+    for (const CTransactionRef& tx : pblock->vtx | std::views::drop(1)) {
+        if (const auto request{bip300::ParseBmmRequest(*tx)}) {
+            sidechain_messages.push_back(bip300::MakeCoinbaseMessageScript(bip300::BmmAccept{request->slot, request->hash}));
+        }
+    }
+    for (const CScript& message : sidechain_messages) coinbaseTx.vout.emplace_back(0, message);
 
     // Start the coinbase scriptSig with the block height as required by BIP34.
     // Mining clients are expected to append extra data to this prefix, so
@@ -257,6 +277,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
         coinbase_tx.witness = uint256(witness_stack[0]);
     }
     if (dev_tax_output) coinbase_tx.required_outputs.push_back(final_coinbase->vout[1]);
+    for (size_t i{0}; i < sidechain_messages.size(); ++i) {
+        coinbase_tx.required_outputs.push_back(final_coinbase->vout[(dev_tax_output ? 2 : 1) + i]);
+    }
     if (const int witness_index = GetWitnessCommitmentIndex(*pblock); witness_index != NO_WITNESS_COMMITMENT) {
         Assert(witness_index >= 0 && static_cast<size_t>(witness_index) < final_coinbase->vout.size());
         coinbase_tx.required_outputs.push_back(final_coinbase->vout[witness_index]);
@@ -323,6 +346,66 @@ void BlockAssembler::addBundleOutcome()
     addParentChainEvent(std::move(tx));
 }
 
+void BlockAssembler::addSidechainPart()
+{
+    bip300::Producer* const producer{m_chainstate.m_chainman.m_options.sidechain_producer};
+    if (!producer) return;
+    const CCoinsViewCache& view{m_chainstate.CoinsTip()};
+    const auto state{bip300::ReadState(view)};
+    if (!state) {
+        LogWarning("Building a block without sidechain messages: sidechain state corrupt");
+        return;
+    }
+    // Leave room for the messages in the coinbase
+    static constexpr int64_t MESSAGES_ROOM{4'000};
+    const int64_t room{int64_t(*Assert(m_options.block_max_weight)) - int64_t(nBlockWeight) - MESSAGES_ROOM};
+    bip300::Producer::BlockPart part{producer->MakeBlockPart(
+        *state, nHeight, chainparams.GetConsensus().sidechains,
+        [&view](uint8_t slot, const uint256& m6id) { return view.HaveCoin(bip300::ProposedBundleOutpoint(slot, m6id)); },
+        std::max<int64_t>(0, room))};
+    for (const CScript& message : part.messages) {
+        nBlockWeight += ::GetSerializeSize(CTxOut{0, message}) * WITNESS_SCALE_FACTOR;
+    }
+    for (const CTransactionRef& payout : part.payouts) {
+        nBlockWeight += GetTransactionWeight(*payout);
+        nBlockSigOpsCost += GetLegacySigOpCount(*payout) * WITNESS_SCALE_FACTOR;
+    }
+    m_sidechain_messages = std::move(part.messages);
+    m_payouts = std::move(part.payouts);
+}
+
+void BlockAssembler::chooseBmmRequests()
+{
+    const uint256 tip{m_chainstate.m_chain.Tip()->GetBlockHash()};
+    std::map<uint8_t, std::pair<CAmount, Txid>> best;
+    for (const CTxMemPoolEntryRef& entry : m_mempool->entryAll()) {
+        const auto request{bip300::ParseBmmRequest(entry.get().GetTx())};
+        if (!request || request->prev_block != tip) continue;
+        const std::pair bid{entry.get().GetModifiedFee(), entry.get().GetTx().GetHash()};
+        const auto [it, inserted]{best.emplace(request->slot, bid)};
+        if (!inserted && bid.first > it->second.first) it->second = bid;
+    }
+    for (const auto& [slot, bid] : best) {
+        m_bmm_requests.emplace(slot, bid.second);
+        // Room for its M7
+        nBlockWeight += ::GetSerializeSize(CTxOut{0, bip300::MakeCoinbaseMessageScript(bip300::BmmAccept{slot, uint256{}})}) * WITNESS_SCALE_FACTOR;
+    }
+}
+
+void BlockAssembler::addPayouts()
+{
+    // Their room was reserved by addSidechainPart
+    for (CTransactionRef& payout : m_payouts) {
+        const CAmount fee{*Assert(bip300::ParseM6Fee(*payout))};
+        pblocktemplate->block.vtx.push_back(std::move(payout));
+        pblocktemplate->vTxFees.push_back(fee);
+        pblocktemplate->vTxSigOpsCost.push_back(GetLegacySigOpCount(*pblocktemplate->block.vtx.back()) * WITNESS_SCALE_FACTOR);
+        nFees += fee;
+        ++nBlockTx;
+    }
+    m_payouts.clear();
+}
+
 void BlockAssembler::addParentChainEvent(CTransactionRef tx)
 {
     const int64_t weight{GetTransactionWeight(*tx)};
@@ -355,6 +438,11 @@ bool BlockAssembler::TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>
     for (const auto tx : txs) {
         if (!IsFinalTx(tx.get().GetTx(), nHeight, m_lock_time_cutoff)) {
             return false;
+        }
+        // Only the BMM request chosen for its slot
+        if (const auto request{bip300::ParseBmmRequest(tx.get().GetTx())}) {
+            const auto chosen{m_bmm_requests.find(request->slot)};
+            if (chosen == m_bmm_requests.end() || chosen->second != tx.get().GetTx().GetHash()) return false;
         }
     }
     return true;

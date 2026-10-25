@@ -174,6 +174,11 @@ public:
 
 struct CMutableTransaction;
 
+/** The txid of this chain's sidechain treasuries: slot S's treasury is the
+ *  coin at (SidechainTreasuryTxid(), S), which no transaction creates.  See
+ *  bip300/state.h.  */
+const Txid& SidechainTreasuryTxid();
+
 struct TransactionSerParams {
     const bool allow_witness;
     SER_PARAMS_OPFUNC
@@ -372,6 +377,15 @@ public:
     {
         return IsParentChainEvent() && vin[0].scriptSig.size() == 2 &&
                (vin[0].scriptSig[1] == OP_1 || vin[0].scriptSig[1] == OP_2);
+    }
+
+    /** A withdrawal bundle's payout from one of this chain's sidechains
+     *  (BIP300's M6): its single input spends the slot's treasury.  See
+     *  bip300/messages.h.  */
+    bool IsSidechainPayout() const
+    {
+        return vin.size() == 1 && vin[0].prevout.hash == SidechainTreasuryTxid() &&
+               vin[0].prevout.n <= std::numeric_limits<uint8_t>::max();
     }
 
     bool Equals(const CTransaction& other, const EqualsOptions opts = {}) const

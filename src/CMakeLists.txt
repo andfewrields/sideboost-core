@@ -98,6 +98,7 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   auxpow.cpp
   base58.cpp
   bech32.cpp
+  bip300/messages.cpp
   chain.cpp
   chainparams.cpp
   chainparamsbase.cpp
@@ -188,6 +189,9 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   addrdb.cpp
   addrman.cpp
   banman.cpp
+  bip300/producer.cpp
+  bip300/rules.cpp
+  bip300/state.cpp
   bip324.cpp
   blockencodings.cpp
   blockfilter.cpp
@@ -274,6 +278,7 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   rpc/rawtransaction.cpp
   rpc/server.cpp
   rpc/server_util.cpp
+  rpc/sidechains.cpp
   rpc/signmessage.cpp
   rpc/txoutproof.cpp
   script/sigcache.cpp

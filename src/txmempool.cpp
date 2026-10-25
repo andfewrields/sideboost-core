@@ -5,6 +5,7 @@
 
 #include <txmempool.h>
 
+#include <bip300/messages.h>
 #include <chain.h>
 #include <coins.h>
 #include <common/system.h>
@@ -426,6 +427,24 @@ std::vector<RemovedMempoolTransactionInfo> CTxMemPool::removeForBlock(const std:
         LogDebug(BCLog::MEMPOOL, "Mempool in non-optimal ordering after block.");
     }
     return txs_removed_for_block;
+}
+
+void CTxMemPool::removeStaleBmmRequests(const uint256& tip)
+{
+    AssertLockHeld(cs);
+    Assume(!m_have_changeset);
+    std::vector<const TxGraph::Ref*> stale;
+    for (txiter it = mapTx.begin(); it != mapTx.end(); it++) {
+        const auto request{bip300::ParseBmmRequest(it->GetTx())};
+        if (request && request->prev_block != tip) stale.emplace_back(&*it);
+    }
+    if (stale.empty()) return;
+    for (auto ref : m_txgraph->GetDescendantsUnion(stale, TxGraph::Level::MAIN)) {
+        removeUnchecked(mapTx.iterator_to(static_cast<const CTxMemPoolEntry&>(*ref)), MemPoolRemovalReason::EXPIRY);
+    }
+    if (!m_txgraph->DoWork(/*max_cost=*/POST_CHANGE_COST)) {
+        LogDebug(BCLog::MEMPOOL, "Mempool in non-optimal ordering after removing BMM requests.");
+    }
 }
 
 void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendheight, int coinbase_maturity) const

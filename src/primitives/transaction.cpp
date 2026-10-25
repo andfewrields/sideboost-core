@@ -18,6 +18,12 @@
 #include <span>
 #include <stdexcept>
 
+const Txid& SidechainTreasuryTxid()
+{
+    static const Txid txid{Txid::FromUint256((HashWriter{} << std::string{"SideBoost sidechain treasury"}).GetSHA256())};
+    return txid;
+}
+
 std::string COutPoint::ToString() const
 {
     return strprintf("COutPoint(%s, %u)", hash.ToString().substr(0,10), n);

@@ -2356,8 +2356,8 @@ static RPCMethod getblockstats()
         }
 
         // None spends anything (a parent chain event's undo data is drivechain
-        // state)
-        if (tx->IsCoinBase() || tx->IsParentChainEvent()) {
+        // state, a payout's treasury has none)
+        if (tx->IsCoinBase() || tx->IsParentChainEvent() || tx->IsSidechainPayout()) {
             continue;
         }
 

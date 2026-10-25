@@ -100,6 +100,7 @@ add_executable(test_namecoin
   serfloat_tests.cpp
   serialize_tests.cpp
   settings_tests.cpp
+  sidechain_tests.cpp
   sighash_tests.cpp
   sigopcount_tests.cpp
   skiplist_tests.cpp

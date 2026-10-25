@@ -28,6 +28,9 @@ class ECC_Context;
 class NetGroupManager;
 class PeerManager;
 class TorController;
+namespace bip300 {
+class Producer;
+} // namespace bip300
 namespace drivechain {
 class DepositSource;
 class ParentChainSync;
@@ -83,6 +86,9 @@ struct NodeContext {
     //! the view.
     std::unique_ptr<drivechain::DepositSource> deposit_source;
     std::unique_ptr<drivechain::ParentChainView> parent_chain;
+    //! What the node puts in its blocks for its own sidechains.  Outlives
+    //! chainman, which block assembly reaches it through.
+    std::unique_ptr<bip300::Producer> sidechain_producer;
     std::unique_ptr<ChainstateManager> chainman;
     //! Runs SyncWithParentChain (chains that take deposits)
     std::unique_ptr<drivechain::ParentChainSync> parent_chain_sync;

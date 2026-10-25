@@ -387,9 +387,9 @@ CCoinsViewCache::ResetGuard CoinsViewOverlay::StartFetching(const CBlock& block 
         earlier_txids.reserve(block.vtx.size());
         earlier_txids.emplace(block.vtx[0]->GetHash());
         for (const auto& tx : block.vtx | std::views::drop(1)) {
-            // A parent chain event's input is on the parent chain: ConnectBlock
-            // never reads it
-            if (tx->IsParentChainEvent()) {
+            // A parent chain event's input is on the parent chain, a payout's
+            // is a sidechain treasury: ConnectBlock never reads them as inputs
+            if (tx->IsParentChainEvent() || tx->IsSidechainPayout()) {
                 earlier_txids.emplace(tx->GetHash());
                 continue;
             }

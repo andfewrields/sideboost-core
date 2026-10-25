@@ -59,13 +59,51 @@ public:
     SERIALIZE_METHODS(CTxUndo, obj) { READWRITE(Using<VectorFormatter<TxInUndoFormatter>>(obj.vprevout)); }
 };
 
+/** A change a block made to a coin outside its transactions' inputs and
+ *  outputs: consensus state the UTXO set holds (see bip300/state.h).  A spent
+ *  coin stands for none. */
+struct StateCoinChange
+{
+    COutPoint outpoint;
+    Coin before;
+    Coin after;
+
+    template<typename Stream>
+    void Serialize(Stream& s) const
+    {
+        const uint8_t present = uint8_t{!before.IsSpent()} | uint8_t(uint8_t{!after.IsSpent()} << 1);
+        ::Serialize(s, outpoint);
+        ::Serialize(s, present);
+        if (!before.IsSpent()) ::Serialize(s, Using<TxInUndoFormatter>(before));
+        if (!after.IsSpent()) ::Serialize(s, Using<TxInUndoFormatter>(after));
+    }
+
+    template<typename Stream>
+    void Unserialize(Stream& s)
+    {
+        uint8_t present;
+        ::Unserialize(s, outpoint);
+        ::Unserialize(s, present);
+        if (present & ~uint8_t{3}) throw std::ios_base::failure("unknown state coin change");
+        before.Clear();
+        after.Clear();
+        if (present & 1) ::Unserialize(s, Using<TxInUndoFormatter>(before));
+        if (present & 2) ::Unserialize(s, Using<TxInUndoFormatter>(after));
+    }
+};
+
 /** Undo information for a CBlock */
 class CBlockUndo
 {
 public:
     std::vector<CTxUndo> vtxundo; // for all but the coinbase
+    /** State coins the block changed, in order. */
+    std::vector<StateCoinChange> vstate;
+    /** What happened to this chain's sidechains in the block, for RPCs
+     *  (bip300::BlockEvents, serialized; empty if nothing did). */
+    std::vector<unsigned char> sidechain_events;
 
-    SERIALIZE_METHODS(CBlockUndo, obj) { READWRITE(obj.vtxundo); }
+    SERIALIZE_METHODS(CBlockUndo, obj) { READWRITE(obj.vtxundo, obj.vstate, obj.sidechain_events); }
 };
 
 #endif // BITCOIN_UNDO_H

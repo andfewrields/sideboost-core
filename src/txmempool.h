@@ -330,6 +330,9 @@ public:
      * */
     void removeForReorg(CChain& chain, std::function<bool(txiter)> filter_final_and_mature) EXCLUSIVE_LOCKS_REQUIRED(cs, cs_main);
     std::vector<RemovedMempoolTransactionInfo> removeForBlock(const std::vector<CTransactionRef>& vtx) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    /** Remove the BMM requests (bip300/messages.h) not made on `tip`, which
+     *  no block on it can include, and their descendants. */
+    void removeStaleBmmRequests(const uint256& tip) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Look up wtxids in the mempool and (partially) sort by mining score.
      *

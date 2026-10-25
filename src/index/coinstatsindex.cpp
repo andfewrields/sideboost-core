@@ -5,6 +5,7 @@
 #include <index/coinstatsindex.h>
 
 #include <arith_uint256.h>
+#include <bip300/messages.h>
 #include <chain.h>
 #include <chainparams.h>
 #include <coins.h>
@@ -152,8 +153,9 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                 const Coin coin{out, block.height, is_coinbase};
                 const COutPoint outpoint{tx->GetHash(), j};
 
-                // A withdrawal's value goes to the withdrawal queue (below)
-                if (!is_coinbase && !tx->IsParentChainEvent() && drivechain::ParseWithdrawal(out)) continue;
+                // A withdrawal's value goes to the withdrawal queue, a deposit's
+                // to its sidechain's treasury (below)
+                if (!is_coinbase && !tx->IsParentChainEvent() && (drivechain::ParseWithdrawal(out) || bip300::ParseDeposit(out))) continue;
 
                 // Skip unspendable coins
                 if (coin.out.scriptPubKey.IsUnspendable()) {
@@ -239,6 +241,25 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                     m_total_prevout_spent_amount += change.coin.out.nValue;
                     m_total_withdrawal_amount += change.coin.out.nValue;
                 }
+            }
+        }
+
+        // Our sidechains' state (bip300/state.h): their treasuries take the
+        // deposits and pay the payouts, as if spent and created anew
+        for (const StateCoinChange& change : Assert(block.undo_data)->vstate) {
+            if (!change.before.IsSpent()) {
+                RemoveCoinHash(m_muhash, change.outpoint, change.before);
+                --m_transaction_output_count;
+                m_total_amount -= change.before.out.nValue;
+                m_bogo_size -= GetBogoSize(change.before.out.scriptPubKey);
+                m_total_prevout_spent_amount += change.before.out.nValue;
+            }
+            if (!change.after.IsSpent()) {
+                ApplyCoinHash(m_muhash, change.outpoint, change.after);
+                ++m_transaction_output_count;
+                m_total_amount += change.after.out.nValue;
+                m_bogo_size += GetBogoSize(change.after.out.scriptPubKey);
+                m_total_new_outputs_ex_coinbase_amount += change.after.out.nValue;
             }
         }
     } else {
@@ -483,6 +504,12 @@ bool CoinStatsIndex::RevertBlock(const interfaces::BlockInfo& block)
                 ApplyCoinHash(m_muhash, it->outpoint, it->coin);
             }
         }
+    }
+
+    // Our sidechains' state
+    for (const StateCoinChange& change : block.undo_data->vstate) {
+        if (!change.after.IsSpent()) RemoveCoinHash(m_muhash, change.outpoint, change.after);
+        if (!change.before.IsSpent()) ApplyCoinHash(m_muhash, change.outpoint, change.before);
     }
 
     // Check that the rolled back muhash is consistent with the DB read out

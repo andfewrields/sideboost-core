@@ -20,6 +20,9 @@
 
 class CChainParams;
 class ValidationSignals;
+namespace bip300 {
+class Producer;
+} // namespace bip300
 namespace drivechain {
 class ParentChainView;
 } // namespace drivechain
@@ -60,6 +63,9 @@ struct ChainstateManagerOpts {
     //! The node's view of the parent chain, for deposits; required on chains
     //! that take deposits (Consensus::Params::deposit_slot).
     drivechain::ParentChainView* parent_chain{nullptr};
+    //! What blocks built by this node carry for its own sidechains (none if
+    //! null, but BMM).
+    bip300::Producer* sidechain_producer{nullptr};
 };
 
 } // namespace kernel

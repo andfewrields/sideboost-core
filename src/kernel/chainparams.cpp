@@ -165,6 +165,33 @@ static_assert(MaxFutureBlockTime(BITCOIN_BLOCK_SPACING) == MAX_FUTURE_BLOCK_TIME
 static_assert(MaxFutureBlockTime(SIDEBOOST_BLOCK_SPACING) < SIDEBOOST_DIFFICULTY_WINDOW * SIDEBOOST_BLOCK_SPACING);
 
 /**
+ * BIP300's voting periods for our own sidechains, for blocks `spacing`
+ * seconds apart: the spec's (for Bitcoin's 10 minutes), in proportion to the
+ * spacing, then 4× shorter for withdrawals (and the replacement of a used
+ * slot, which the spec ties to them) and 2× shorter for activating an unused
+ * slot.  At 10 s: 394,500 / 197,250 blocks (~46 / ~23 days), and 60,480 /
+ * 54,450 (~7 / ~6.3 days).
+ */
+static constexpr Consensus::SidechainParams SidechainPeriods(int64_t spacing)
+{
+    const uint32_t blocks{static_cast<uint32_t>(BITCOIN_BLOCK_SPACING / spacing)};
+    const uint32_t withdrawal_max_age{26'300 * blocks / 4};
+    const uint32_t withdrawal_threshold{13'150 * blocks / 4};
+    return {
+        .withdrawal_bundle_max_age = withdrawal_max_age,
+        .withdrawal_bundle_inclusion_threshold = withdrawal_threshold,
+        .used_slot_proposal_max_age = withdrawal_max_age,
+        .used_slot_activation_threshold = withdrawal_threshold,
+        .unused_slot_proposal_max_age = 2'016 * blocks / 2,
+        .unused_slot_activation_threshold = 1'815 * blocks / 2,
+    };
+}
+static_assert(SidechainPeriods(10).withdrawal_bundle_max_age == 394'500);
+static_assert(SidechainPeriods(10).withdrawal_bundle_inclusion_threshold == 197'250);
+static_assert(SidechainPeriods(10).unused_slot_proposal_max_age == 60'480);
+static_assert(SidechainPeriods(10).unused_slot_activation_threshold == 54'450);
+
+/**
  * The script the dev tax is paid to, on every network that has one.
  *
  * TODO: a placeholder; replace it with the dev's before launch.  It pays to
@@ -202,6 +229,8 @@ static void SetSideBoostConsensus(Consensus::Params& consensus)
     consensus.min_transaction_fee = MIN_TRANSACTION_FEE;
     /* Every block pays a dev tax (consensus/devtax.h).  */
     consensus.dev_tax_script = SIDEBOOST_DEV_TAX_SCRIPT;
+    /* Our own sidechains (bip300/).  */
+    consensus.sidechains = SidechainPeriods(SIDEBOOST_BLOCK_SPACING);
     /* All buried deployments active from the start.  BIP34/65/66/CSV
        start at height 1 since the genesis block cannot satisfy them.  */
     consensus.BIP16Height = 0;
@@ -562,6 +591,16 @@ public:
         /* Likewise no minimum fee unless asked for (-consensusminfee), as
            Bitcoin's tests have transactions without fees.  */
         consensus.min_transaction_fee = opts.min_transaction_fee ? MIN_TRANSACTION_FEE : 0;
+        // Short enough to activate sidechains and pay out bundles in tests
+        // (the enforcer's regtest values)
+        consensus.sidechains = {
+            .withdrawal_bundle_max_age = 10,
+            .withdrawal_bundle_inclusion_threshold = 5,
+            .used_slot_proposal_max_age = 10,
+            .used_slot_activation_threshold = 5,
+            .unused_slot_proposal_max_age = 10,
+            .unused_slot_activation_threshold = 5,
+        };
 
         /* Testing: short versionbits periods, so deployments can be
            exercised in a few hundred blocks.  */

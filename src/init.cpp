@@ -10,6 +10,7 @@
 #include <addrdb.h>
 #include <addrman.h>
 #include <banman.h>
+#include <bip300/producer.h>
 #include <blockfilter.h>
 #include <chain.h>
 #include <chainparams.h>
@@ -1441,6 +1442,11 @@ static ChainstateLoadResult InitAndLoadChainstate(
         }
         chainman_opts.parent_chain = node.parent_chain.get();
     }
+    if (!node.sidechain_producer) {
+        node.sidechain_producer = std::make_unique<bip300::Producer>(args.GetDataDirNet() / "sidechainproducer.dat");
+        node.sidechain_producer->Load();
+    }
+    chainman_opts.sidechain_producer = node.sidechain_producer.get();
 
     BlockManager::Options blockman_opts{
         .chainparams = chainman_opts.chainparams,
