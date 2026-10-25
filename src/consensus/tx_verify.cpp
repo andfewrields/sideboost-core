@@ -168,7 +168,7 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
     return nSigOps;
 }
 
-bool Consensus::CheckTxInputs(const CTransaction& tx, TxValidationState& state, const CCoinsViewCache& inputs, int nSpendHeight, int coinbase_maturity, CAmount& txfee)
+bool Consensus::CheckTxInputs(const CTransaction& tx, TxValidationState& state, const CCoinsViewCache& inputs, int nSpendHeight, int coinbase_maturity, CAmount& txfee, CAmount min_fee)
 {
     // are the actual inputs available?
     if (!inputs.HaveInputs(tx)) {
@@ -214,6 +214,10 @@ bool Consensus::CheckTxInputs(const CTransaction& tx, TxValidationState& state, 
         // * `nValueIn < value_out` was handled above, so `nValueIn >= value_out` here (and `txfee_aux >= 0`).
         // Therefore `0 <= txfee_aux = nValueIn - value_out <= nValueIn <= MAX_MONEY`.
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-fee-outofrange");
+    }
+    if (txfee_aux < min_fee) {
+        return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-fee-too-low",
+                             strprintf("fee (%d sat) < minimum (%d sat)", txfee_aux, min_fee));
     }
 
     txfee = txfee_aux;

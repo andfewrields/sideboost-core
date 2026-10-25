@@ -76,8 +76,10 @@ util::Result<void> ApplyArgsManOptions(const ArgsManager& argsman, const CChainP
         } else {
             return util::Error{AmountErrMsg("minrelaytxfee", *arg)};
         }
-    } else if (mempool_opts.incremental_relay_feerate > mempool_opts.min_relay_feerate) {
-        // Allow only setting incremental fee to control both
+    } else if (argsman.IsArgSet("-incrementalrelayfee") && mempool_opts.incremental_relay_feerate > mempool_opts.min_relay_feerate) {
+        // Allow only setting incremental fee to control both (SideBoost: only
+        // if it is set; by default the incremental fee is 2 sat/kvB and there
+        // is no min relay fee, as consensus requires 1 sat of every tx)
         mempool_opts.min_relay_feerate = mempool_opts.incremental_relay_feerate;
         LogInfo("Increasing minrelaytxfee to %s to match incrementalrelayfee", mempool_opts.min_relay_feerate.ToString());
     }

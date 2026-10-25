@@ -817,7 +817,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         if (!m_active_chainstate.m_chainman.GetConsensus().deposit_slot || !withdrawal) {
             return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-withdrawal");
         }
-        if (m_pool.m_opts.require_standard && IsDust(CTxOut{withdrawal->payout, withdrawal->payout_script}, m_pool.m_opts.dust_relay_feerate)) {
+        if (m_pool.m_opts.require_standard && IsDust(CTxOut{withdrawal->payout, withdrawal->payout_script}, CFeeRate{drivechain::PARENT_CHAIN_DUST_RELAY_FEE})) {
             return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "withdrawal-dust");
         }
     }
@@ -915,7 +915,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     }
 
     // The mempool holds txs for the next block, so pass height+1 to CheckTxInputs
-    if (!Consensus::CheckTxInputs(tx, state, m_view, m_active_chainstate.m_chain.Height() + 1, m_active_chainstate.m_chainman.GetConsensus().nCoinbaseMaturity, ws.m_base_fees)) {
+    if (!Consensus::CheckTxInputs(tx, state, m_view, m_active_chainstate.m_chain.Height() + 1, m_active_chainstate.m_chainman.GetConsensus().nCoinbaseMaturity, ws.m_base_fees, m_active_chainstate.m_chainman.GetConsensus().min_transaction_fee)) {
         return false; // state filled in by CheckTxInputs
     }
 
@@ -2757,7 +2757,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         {
             CAmount txfee = 0;
             TxValidationState tx_state;
-            if (!Consensus::CheckTxInputs(tx, tx_state, view, pindex->nHeight, params.GetConsensus().nCoinbaseMaturity, txfee)) {
+            if (!Consensus::CheckTxInputs(tx, tx_state, view, pindex->nHeight, params.GetConsensus().nCoinbaseMaturity, txfee, params.GetConsensus().min_transaction_fee)) {
                 // Any transaction validation failure in ConnectBlock is a block consensus failure
                 state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                               tx_state.GetRejectReason(),

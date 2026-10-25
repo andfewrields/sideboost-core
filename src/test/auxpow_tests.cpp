@@ -540,7 +540,16 @@ public:
 
 };
 
-BOOST_FIXTURE_TEST_CASE (auxpow_miner_blockRegeneration, TestChain100Setup)
+/* Bitcoin's -blockmintxfee (SideBoost has none), so that the transaction
+   without inputs below changes the mempool but isn't mined.  */
+struct BlockMinFeeSetup : public TestChain100Setup
+{
+  BlockMinFeeSetup ()
+    : TestChain100Setup{ChainType::REGTEST, {.extra_args = {"-blockmintxfee=0.00000001"}}}
+  {}
+};
+
+BOOST_FIXTURE_TEST_CASE (auxpow_miner_blockRegeneration, BlockMinFeeSetup)
 {
   AuxpowMinerForTest miner(m_node);
   LOCK (miner.cs);

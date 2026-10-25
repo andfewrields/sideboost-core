@@ -44,7 +44,7 @@ class ParentChainPrunedTest(ParentChainTest, BitcoinTestFramework):
 
         self.log.info("A parent chain reorg dropping the deposit stops the node")
         self.ecx_reorg(parent, [])
-        node.mockscheduler(6)
+        # The node follows the parent chain every 5 s, and stops by itself
         node.wait_until_stopped(expect_error=True, expected_stderr=re.compile(
             rf"Error: A fatal internal error occurred, see debug.log for details: Following the parent chain needs block {height}, "
             r"which this node can't read\. If it prunes, the block was deleted: restart with -reindex to download the chain again\."))

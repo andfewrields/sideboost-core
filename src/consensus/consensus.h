@@ -6,6 +6,8 @@
 #ifndef BITCOIN_CONSENSUS_CONSENSUS_H
 #define BITCOIN_CONSENSUS_CONSENSUS_H
 
+#include <consensus/amount.h>
+
 #include <cstddef>
 #include <cstdint>
 
@@ -17,6 +19,9 @@ inline constexpr unsigned int MAX_BLOCK_WEIGHT{4'000'000};
 inline constexpr int64_t MAX_BLOCK_SIGOPS_COST{80'000};
 /** Coinbase transaction outputs can only be spent after this number of new blocks (network rule) */
 inline constexpr int COINBASE_MATURITY = 100;
+/** SideBoost: the least fee a transaction must pay on its networks, in
+ *  satoshis (Consensus::Params::min_transaction_fee) */
+inline constexpr CAmount MIN_TRANSACTION_FEE{1};
 
 inline constexpr int WITNESS_SCALE_FACTOR = 4;
 

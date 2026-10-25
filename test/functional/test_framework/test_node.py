@@ -127,6 +127,8 @@ class TestNode():
         self.binaries = binaries
         self.coverage_dir = coverage_dir
         self.cwd = cwd
+        # Run with upstream Bitcoin's fee settings unless given (see start)
+        self.pin_upstream_fees = True
         self.use_gui = use_gui
         self.has_explicit_bind = False
         if extra_conf is not None:
@@ -267,13 +269,19 @@ class TestNode():
         # to the defaults used in upstream Bitcoin (rather than the one from
         # Namecoin) unless an explicit value is given.  This makes sure that
         # tx fees hardcoded in some tests are adequate and do not need changes
-        # for Namecoin.
+        # for Namecoin.  SideBoost: likewise the dust, incremental relay,
+        # block min and discard fees, which it has none of (or 1 sat/kvB);
+        # tests of SideBoost's own defaults set pin_upstream_fees to False.
         explicit_fees = set ()
         fee_defaults = {
             "-minrelaytxfee": "0.000001",  # 100 sat/kvB
             "-mintxfee": "0.00001",        # 1000 sat/kvB
             "-consolidatefeerate": "0.0001",# 10000 sat/kvB
-        }
+            "-dustrelayfee": "0.00003",    # 3000 sat/kvB
+            "-incrementalrelayfee": "0.000001",  # 100 sat/kvB
+            "-blockmintxfee": "0.00000001",  # 1 sat/kvB
+            "-discardfee": "0.0001",       # 10000 sat/kvB
+        } if self.pin_upstream_fees else {}
         for arg in extra_args:
             for fee_arg in fee_defaults:
                 if arg.startswith (fee_arg):

@@ -41,8 +41,9 @@ inline constexpr unsigned int DEFAULT_COINBASE_OUTPUT_MAX_ADDITIONAL_SIGOPS{40};
  * of block serialization, it's easy to make a costly mistake when trying to squeeze every last byte.
  * Setting a lower value is prevented at startup. */
 inline constexpr unsigned int MINIMUM_BLOCK_RESERVED_WEIGHT{2000};
-/** Default for -blockmintxfee, which sets the minimum feerate for a transaction in blocks created by mining code **/
-inline constexpr unsigned int DEFAULT_BLOCK_MIN_TX_FEE{1};
+/** Default for -blockmintxfee, which sets the minimum feerate for a transaction in blocks created by mining code.
+ *  SideBoost: none, so blocks take transactions without fees **/
+inline constexpr unsigned int DEFAULT_BLOCK_MIN_TX_FEE{0};
 /** The maximum weight for transactions we're willing to relay/mine */
 inline constexpr int32_t MAX_STANDARD_TX_WEIGHT{400'000};
 /** The minimum non-witness size for transactions we're willing to relay/mine: one larger than 64  */
@@ -61,8 +62,10 @@ int32_t GetMaxStandardTxWeight(const Consensus::Params& params);
 unsigned int GetMaxStandardTxSigOpsCost(const Consensus::Params& params);
 /** The maximum number of potentially executed legacy signature operations in a single standard tx */
 inline constexpr unsigned int MAX_TX_LEGACY_SIGOPS{2'500};
-/** Default for -incrementalrelayfee, which sets the minimum feerate increase for mempool limiting or replacement **/
-inline constexpr unsigned int DEFAULT_INCREMENTAL_RELAY_FEE{100};
+/** Default for -incrementalrelayfee, which sets the minimum feerate increase for mempool limiting or replacement.
+ *  SideBoost: 2 sat/kvB, so a replacement pays strictly more than what it replaces (fees round up to at least
+ *  1 sat), however little **/
+inline constexpr unsigned int DEFAULT_INCREMENTAL_RELAY_FEE{2};
 /** Default for -bytespersigop */
 inline constexpr unsigned int DEFAULT_BYTES_PER_SIGOP{20};
 /** Default for -permitbaremultisig */
@@ -81,10 +84,13 @@ inline constexpr unsigned int MAX_STANDARD_SCRIPTSIG_SIZE{1650};
  * Changing the dust limit changes which transactions are
  * standard and should be done with care and ideally rarely. It makes sense to
  * only increase the dust limit after prior releases were already not creating
- * outputs below the new threshold */
-inline constexpr unsigned int DUST_RELAY_TX_FEE{3000};
-/** Default for -minrelaytxfee, minimum relay fee for transactions */
-inline constexpr unsigned int DEFAULT_MIN_RELAY_TX_FEE{COIN / 1'000};
+ * outputs below the new threshold.
+ * SideBoost: none, so any output of 1 sat or more is standard */
+inline constexpr unsigned int DUST_RELAY_TX_FEE{0};
+/** Default for -minrelaytxfee, minimum relay fee for transactions.
+ *  SideBoost: none: the 1 sat consensus requires of every transaction (Consensus::Params::min_transaction_fee),
+ *  however large, is all relay requires too */
+inline constexpr unsigned int DEFAULT_MIN_RELAY_TX_FEE{0};
 /** Maximum number of transactions per cluster (default) */
 inline constexpr unsigned int DEFAULT_CLUSTER_LIMIT{64};
 /** Maximum size of cluster in virtual kilobytes */

@@ -104,10 +104,11 @@ std::unique_ptr<WalletDatabase> MakeWalletDatabase(const std::string& name, cons
 
 //! -fallbackfee default
 inline constexpr CAmount DEFAULT_FALLBACK_FEE = 0;
-//! -discardfee default
-inline constexpr CAmount DEFAULT_DISCARD_FEE{10'000};
-//! -mintxfee default
-inline constexpr CAmount DEFAULT_TRANSACTION_MINFEE = COIN / 1000;
+//! -discardfee default.  SideBoost: none, so change of any amount is kept
+inline constexpr CAmount DEFAULT_DISCARD_FEE{0};
+//! -mintxfee default.  SideBoost: 1 sat/kvB, so the wallet pays at least the
+//! 1 sat consensus requires (fees round up to it), however large the tx
+inline constexpr CAmount DEFAULT_TRANSACTION_MINFEE = 1;
 //! -consolidatefeerate default
 inline constexpr CAmount DEFAULT_CONSOLIDATE_FEERATE{COIN / 100}; // 10 sat/vbyte
 /**
@@ -120,8 +121,13 @@ inline constexpr CAmount DEFAULT_CONSOLIDATE_FEERATE{COIN / 100}; // 10 sat/vbyt
 inline constexpr CAmount DEFAULT_MAX_AVOIDPARTIALSPEND_FEE = 0;
 //! discourage APS fee higher than this amount
 inline constexpr CAmount HIGH_APS_FEE{COIN / 10000};
-//! minimum recommended increment for replacement txs
-inline constexpr CAmount WALLET_INCREMENTAL_RELAY_FEE = COIN / 1000;
+//! minimum recommended increment for replacement txs, when bumpfee picks the
+//! feerate.  SideBoost: Bitcoin's 5 sat/vB, as a margin: a replacement that
+//! adds inputs can come out a vbyte larger than the wallet estimates, which a
+//! smaller step wouldn't cover, and the node would reject it.  With an
+//! explicit fee_rate, bumpfee only requires the node's increment, so a
+//! replacement can pay as little as 1 sat more.
+inline constexpr CAmount WALLET_INCREMENTAL_RELAY_FEE = 5'000;
 //! Default for -spendzeroconfchange
 inline constexpr bool DEFAULT_SPEND_ZEROCONF_CHANGE = true;
 //! Default for -walletrejectlongchains

@@ -50,7 +50,9 @@ using util::ToString;
 
 typedef std::vector<unsigned char> valtype;
 
-static CFeeRate g_dust{DUST_RELAY_TX_FEE};
+// Bitcoin's dust feerate, which these tests are about (SideBoost has none)
+static constexpr unsigned int BITCOIN_DUST_RELAY_TX_FEE{3000};
+static CFeeRate g_dust{BITCOIN_DUST_RELAY_TX_FEE};
 static bool g_bare_multi{DEFAULT_PERMIT_BAREMULTISIG};
 
 static const std::map<std::string, script_verify_flag_name>& mapFlagNames = ScriptFlagNamesToEnum();
@@ -820,7 +822,7 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
     // not dust:
     t.vout[0].nValue = 674;
     CheckIsStandard(t);
-    g_dust = CFeeRate{DUST_RELAY_TX_FEE};
+    g_dust = CFeeRate{BITCOIN_DUST_RELAY_TX_FEE};
 
     t.vout[0].scriptPubKey = CScript() << OP_1;
     CheckIsNotStandard(t, "scriptpubkey");

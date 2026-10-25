@@ -136,8 +136,9 @@ BOOST_FIXTURE_TEST_CASE(rbf_helper_functions, TestChain100Setup)
     BOOST_CHECK(EntriesAndTxidsDisjoint({entry2_normal}, {tx1->GetHash()}, unused_txid) == std::nullopt);
 
     // Tests for PaysForRBF
-    const CFeeRate incremental_relay_feerate{DEFAULT_INCREMENTAL_RELAY_FEE};
-    const CFeeRate higher_relay_feerate{2 * DEFAULT_INCREMENTAL_RELAY_FEE};
+    // Bitcoin's incremental relay feerate (SideBoost's is 1 sat/kvB)
+    const CFeeRate incremental_relay_feerate{100};
+    const CFeeRate higher_relay_feerate{2 * 100};
     // Must pay at least as much as the original.
     BOOST_CHECK(PaysForRBF(/*original_fees=*/high_fee,
                            /*replacement_fees=*/high_fee,

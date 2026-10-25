@@ -29,7 +29,7 @@ from test_framework.p2p import (
 )
 from test_framework.test_framework import BitcoinTestFramework
 
-MAX_FEE_FILTER = Decimal(9452957) / COIN
+MAX_FEE_FILTER = Decimal(9893815) / COIN  # SideBoost: rounded from no default min relay fee
 NORMAL_FEE_FILTER = Decimal(100) / COIN
 
 

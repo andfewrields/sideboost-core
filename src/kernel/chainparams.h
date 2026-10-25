@@ -172,6 +172,7 @@ public:
         bool enforce_bip94{false};
         std::optional<uint8_t> deposit_slot{};
         bool dev_tax{false};
+        bool min_transaction_fee{false};
     };
 
     struct MainNetOptions {

@@ -517,6 +517,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
                              kernel::DEFAULT_XOR_BLOCKSDIR),
                    ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-fastprune", "Use smaller block files and lower minimum prune height for testing purposes", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-consensusminfee", "Have transactions pay at least 1 sat by consensus, as on the other networks (regtest-only, default: 0)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-devtax", "Have coinbases pay the dev tax, as on the other networks (regtest-only, default: 0)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-depositslot=<n>", "Take deposits from BIP300 sidechain slot <n> of the parent chain (regtest-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-bundlevotes", strprintf("For parent chain miners: have the enforcer (-enforcer) vote only for the withdrawal bundle pending on this node's active chain, rather than for bundles a reorg of this chain replaced. Turns off the enforcer's automatic withdrawal bundle votes, for all sidechains (default: %u)", drivechain::DEFAULT_BUNDLE_VOTES), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);

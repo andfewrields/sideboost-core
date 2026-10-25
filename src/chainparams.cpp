@@ -124,6 +124,7 @@ void ReadRegTestArgs(const ArgsManager& args, CChainParams::RegTestOptions& opti
         options.deposit_slot = *slot;
     }
     if (auto value = args.GetBoolArg("-devtax")) options.dev_tax = *value;
+    if (auto value = args.GetBoolArg("-consensusminfee")) options.min_transaction_fee = *value;
 
     HandleDeploymentArgs(args, options.dep_opts);
 }

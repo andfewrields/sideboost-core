@@ -30,11 +30,11 @@ from .wallet import (
     MiniWallet,
 )
 
-# Default for -minrelaytxfee in sat/kvB
+# Default for -minrelaytxfee in sat/kvB (SideBoost: 0)
 # This is overwritten from the "real" value in the test framework for
 # Namecoin, defined in test_node.py.
 DEFAULT_MIN_RELAY_TX_FEE = 100
-# Default for -incrementalrelayfee in sat/kvB
+# Default for -incrementalrelayfee in sat/kvB (SideBoost: 1)
 DEFAULT_INCREMENTAL_RELAY_FEE = 100
 DEFAULT_CLUSTER_LIMIT = 64
 DEFAULT_CLUSTER_SIZE_LIMIT_KVB = 101

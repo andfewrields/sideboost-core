@@ -63,6 +63,12 @@
  */
 namespace drivechain {
 
+/** The parent chain's dust feerate (Bitcoin Core's DUST_RELAY_TX_FEE), in
+ *  sat/kvB: a payout below dust at it would make the bundle's M6
+ *  non-standard there, so it couldn't be mined.  Not this chain's, which has
+ *  no dust limit.  */
+static constexpr CAmount PARENT_CHAIN_DUST_RELAY_FEE{3000};
+
 /** The largest payout script a withdrawal can name: a 40-byte witness
  *  program, the longest standard one.  */
 static constexpr size_t MAX_PAYOUT_SCRIPT_SIZE{42};

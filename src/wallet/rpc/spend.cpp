@@ -376,7 +376,7 @@ RPCMethod withdraw()
     if (amount <= 0) throw JSONRPCError(RPC_TYPE_ERROR, "Invalid amount");
     if (!MoneyRange(amount + parent_fee)) throw JSONRPCError(RPC_TYPE_ERROR, "Amount out of range");
     // As the mempool requires
-    if (IsDust(CTxOut{amount, payout_script}, pwallet->chain().relayDustFee())) throw JSONRPCError(RPC_INVALID_PARAMETER, "Amount is dust on the parent chain");
+    if (IsDust(CTxOut{amount, payout_script}, CFeeRate{drivechain::PARENT_CHAIN_DUST_RELAY_FEE})) throw JSONRPCError(RPC_INVALID_PARAMETER, "Amount is dust on the parent chain");
 
     CCoinControl coin_control;
     SetFeeEstimateMode(*pwallet, coin_control, /*conf_target=*/UniValue{}, /*estimate_mode=*/UniValue{}, /*fee_rate=*/request.params[3], /*override_min_fee=*/false);

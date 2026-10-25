@@ -198,6 +198,8 @@ static void SetSideBoostConsensus(Consensus::Params& consensus)
     /* A deposit is credited once 3 ECX blocks (~30 min) are on top of its
        block, which makes undoing it through an ECX reorg rare.  */
     consensus.nDepositMinDepth = 3;
+    /* Every transaction pays at least 1 sat.  */
+    consensus.min_transaction_fee = MIN_TRANSACTION_FEE;
     /* Every block pays a dev tax (consensus/devtax.h).  */
     consensus.dev_tax_script = SIDEBOOST_DEV_TAX_SCRIPT;
     /* All buried deployments active from the start.  BIP34/65/66/CSV
@@ -557,6 +559,9 @@ public:
            expect coinbases to claim the whole reward.  */
         consensus.dev_tax_script.clear();
         if (opts.dev_tax) consensus.dev_tax_script = SIDEBOOST_DEV_TAX_SCRIPT;
+        /* Likewise no minimum fee unless asked for (-consensusminfee), as
+           Bitcoin's tests have transactions without fees.  */
+        consensus.min_transaction_fee = opts.min_transaction_fee ? MIN_TRANSACTION_FEE : 0;
 
         /* Testing: short versionbits periods, so deployments can be
            exercised in a few hundred blocks.  */
