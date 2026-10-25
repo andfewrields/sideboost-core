@@ -12,6 +12,7 @@
 #include <arith_uint256.h>
 #include <chain.h>
 #include <chainparams.h>
+#include <coins.h>
 #include <chainparamsbase.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
@@ -85,6 +86,7 @@ using node::BlockAssembler;
 using node::GetMinimumTime;
 using node::NodeContext;
 using node::RegenerateCommitments;
+using node::SetCoinbaseReward;
 using node::UpdateTime;
 using util::ToString;
 
@@ -420,6 +422,25 @@ static RPCMethod generateblock()
 
         // Add transactions
         block.vtx.insert(block.vtx.end(), txs.begin(), txs.end());
+        // SideBoost: the dev tax is on the reward the block may claim,
+        // including the fees of these transactions, so the coinbase claims
+        // them too (rather than forfeiting them, as without a dev tax)
+        if (!chainman.GetConsensus().dev_tax_script.empty()) {
+            const int height{chainman.ActiveChain().Height() + 1};
+            CCoinsViewCache view{&chainman.ActiveChainstate().CoinsTip()};
+            CAmount fees{0};
+            for (const CTransactionRef& tx : txs) {
+                // Unknown inputs fail TestBlockValidity below
+                if (!tx->IsParentChainEvent() && view.HaveInputs(*tx)) {
+                    for (const CTxIn& in : tx->vin) fees += view.AccessCoin(in.prevout).out.nValue;
+                    fees -= tx->GetValueOut();
+                }
+                AddCoins(view, *tx, height);
+            }
+            CMutableTransaction coinbase{*block.vtx[0]};
+            SetCoinbaseReward(coinbase, std::max<CAmount>(0, fees) + GetBlockSubsidy(height, chainman.GetConsensus()), chainman.GetConsensus());
+            block.vtx[0] = MakeTransactionRef(std::move(coinbase));
+        }
         RegenerateCommitments(block, chainman);
 
         if (BlockValidationState state{TestBlockValidity(chainman.ActiveChainstate(), block, /*check_pow=*/false, /*check_merkle_root=*/false)}; !state.IsValid()) {
@@ -714,7 +735,12 @@ static RPCMethod getblocktemplate()
                 {
                     {RPCResult::Type::STR_HEX, "key", "values must be in the coinbase (keys may be ignored)"},
                 }},
-                {RPCResult::Type::NUM, "coinbasevalue", "maximum allowable input to coinbase transaction, including the generation award and transaction fees (in satoshis)"},
+                {RPCResult::Type::NUM, "coinbasevalue", "maximum allowable input to coinbase transaction, including the generation award and transaction fees (in satoshis), minus the dev tax"},
+                {RPCResult::Type::OBJ, "devtax", /*optional=*/true, "the dev tax, which the coinbase must pay in an output to this script, besides coinbasevalue (absent if there is none)",
+                {
+                    {RPCResult::Type::STR_HEX, "script", "the output script"},
+                    {RPCResult::Type::NUM, "amount", "the least it must be paid (in satoshis)"},
+                }},
                 {RPCResult::Type::STR, "longpollid", "an id to include with a request to longpoll on an update to this template"},
                 {RPCResult::Type::STR, "target", "The hash target"},
                 {RPCResult::Type::NUM_TIME, "mintime", "The minimum timestamp appropriate for the next block time, expressed in " + UNIX_EPOCH_TIME + ". Adjusted for the proposed BIP94 timewarp rule."},
@@ -1032,6 +1058,13 @@ static RPCMethod getblocktemplate()
     result.pushKV("transactions", std::move(transactions));
     result.pushKV("coinbaseaux", std::move(aux));
     result.pushKV("coinbasevalue", block.vtx[0]->vout[0].nValue);
+    if (const auto& dev_script{consensusParams.dev_tax_script}; !dev_script.empty() && block.vtx[0]->vout.size() > 1 &&
+                                                               block.vtx[0]->vout[1].scriptPubKey == CScript(dev_script.begin(), dev_script.end())) {
+        UniValue dev_tax{UniValue::VOBJ};
+        dev_tax.pushKV("script", HexStr(block.vtx[0]->vout[1].scriptPubKey));
+        dev_tax.pushKV("amount", block.vtx[0]->vout[1].nValue);
+        result.pushKV("devtax", std::move(dev_tax));
+    }
     result.pushKV("longpollid", tip.GetHex() + ToString(nTransactionsUpdatedLast));
     result.pushKV("target", hashTarget.GetHex());
     result.pushKV("mintime", GetMinimumTime(pindexPrev, consensusParams.DifficultyAdjustmentInterval()));
@@ -1058,7 +1091,11 @@ static RPCMethod getblocktemplate()
         result.pushKV("signet_challenge", HexStr(consensusParams.signet_challenge));
     }
 
-    if (auto coinbase{block_template->getCoinbaseTx()}; coinbase.required_outputs.size() > 0) {
+    // SideBoost: besides the dev tax output, shown as devtax
+    const CScript dev_script(consensusParams.dev_tax_script.begin(), consensusParams.dev_tax_script.end());
+    auto coinbase{block_template->getCoinbaseTx()};
+    std::erase_if(coinbase.required_outputs, [&](const CTxOut& out) { return !dev_script.empty() && out.scriptPubKey == dev_script; });
+    if (coinbase.required_outputs.size() > 0) {
         CHECK_NONFATAL(coinbase.required_outputs.size() == 1); // Only one output is currently expected
         result.pushKV("default_witness_commitment", HexStr(coinbase.required_outputs[0].scriptPubKey));
     }

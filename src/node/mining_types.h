@@ -158,14 +158,15 @@ struct CoinbaseTx {
     /**
      * Block subsidy plus fees, minus any non-zero required_outputs.
      *
-     * Currently there are no non-zero required_outputs, so block_reward_remaining
-     * is the entire block reward. See also required_outputs.
+     * SideBoost: the dev tax output (consensus/devtax.h) is a non-zero
+     * required output, so this is the block reward minus the dev tax. See
+     * also required_outputs.
      */
     CAmount block_reward_remaining;
     /*
      * To be included as the last outputs in the coinbase transaction.
-     * Currently this is only the witness commitment OP_RETURN, but future
-     * softforks or a custom mining patch could add more.
+     * SideBoost: the dev tax output, if the block has one, then the witness
+     * commitment OP_RETURN.
      *
      * The dummy output that spends the full reward is excluded.
      */

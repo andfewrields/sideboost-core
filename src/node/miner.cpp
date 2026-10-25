@@ -10,6 +10,7 @@
 #include <common/args.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <consensus/devtax.h>
 #include <consensus/merkle.h>
 #include <consensus/params.h>
 #include <consensus/tx_verify.h>
@@ -56,6 +57,21 @@
 #include <utility>
 
 namespace node {
+
+void SetCoinbaseReward(CMutableTransaction& coinbase, CAmount block_reward, const Consensus::Params& consensus)
+{
+    const CScript dev_script(consensus.dev_tax_script.begin(), consensus.dev_tax_script.end());
+    const CAmount tax{dev_script.empty() ? 0 : GetDevTax(block_reward)};
+    coinbase.vout[0].nValue = block_reward - tax;
+    const bool has_dev_output{!dev_script.empty() && coinbase.vout.size() > 1 && coinbase.vout[1].scriptPubKey == dev_script};
+    if (tax > 0 && has_dev_output) {
+        coinbase.vout[1].nValue = tax;
+    } else if (tax > 0) {
+        coinbase.vout.insert(coinbase.vout.begin() + 1, CTxOut{tax, dev_script});
+    } else if (has_dev_output) {
+        coinbase.vout.erase(coinbase.vout.begin() + 1);
+    }
+}
 
 int64_t GetMinimumTime(const CBlockIndex* pindexPrev, const int64_t difficulty_adjustment_interval)
 {
@@ -199,13 +215,14 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     coinbaseTx.vin[0].nSequence = CTxIn::MAX_SEQUENCE_NONFINAL; // Make sure timelock is enforced.
     coinbase_tx.sequence = coinbaseTx.vin[0].nSequence;
 
-    // Add an output that spends the full coinbase reward.
+    // Add an output that spends the full coinbase reward, but for the dev tax
     coinbaseTx.vout.resize(1);
     coinbaseTx.vout[0].scriptPubKey = m_options.coinbase_output_script;
     // Block subsidy + fees
     const CAmount block_reward{nFees + GetBlockSubsidy(nHeight, chainparams.GetConsensus())};
-    coinbaseTx.vout[0].nValue = block_reward;
-    coinbase_tx.block_reward_remaining = block_reward;
+    SetCoinbaseReward(coinbaseTx, block_reward, chainparams.GetConsensus());
+    coinbase_tx.block_reward_remaining = coinbaseTx.vout[0].nValue;
+    const bool dev_tax_output{coinbaseTx.vout.size() > 1};
 
     // Start the coinbase scriptSig with the block height as required by BIP34.
     // Mining clients are expected to append extra data to this prefix, so
@@ -239,6 +256,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
         Assert(witness_stack.size() == 1 && witness_stack[0].size() == 32);
         coinbase_tx.witness = uint256(witness_stack[0]);
     }
+    if (dev_tax_output) coinbase_tx.required_outputs.push_back(final_coinbase->vout[1]);
     if (const int witness_index = GetWitnessCommitmentIndex(*pblock); witness_index != NO_WITNESS_COMMITMENT) {
         Assert(witness_index >= 0 && static_cast<size_t>(witness_index) < final_coinbase->vout.size());
         coinbase_tx.required_outputs.push_back(final_coinbase->vout[witness_index]);

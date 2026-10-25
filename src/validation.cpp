@@ -14,6 +14,7 @@
 #include <clientversion.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <consensus/devtax.h>
 #include <consensus/merkle.h>
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
@@ -2848,6 +2849,19 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     if (block.vtx[0]->GetValueOut() > blockReward && state.IsValid()) {
         state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-amount",
                       strprintf("coinbase pays too much (actual=%d vs limit=%d)", block.vtx[0]->GetValueOut(), blockReward));
+    }
+    // The coinbase pays the dev tax, on the reward it may claim
+    if (const auto& dev_script{params.GetConsensus().dev_tax_script}; !dev_script.empty() && state.IsValid()) {
+        const CAmount tax{GetDevTax(blockReward)};
+        const CScript dev_output_script(dev_script.begin(), dev_script.end());
+        CAmount paid{0};
+        for (const CTxOut& out : block.vtx[0]->vout) {
+            if (out.scriptPubKey == dev_output_script) paid += out.nValue;
+        }
+        if (paid < tax) {
+            state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-devtax",
+                          strprintf("coinbase pays the dev tax %d, not %d", paid, tax));
+        }
     }
     if (control) {
         auto parallel_result = control->Complete();

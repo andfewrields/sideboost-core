@@ -171,6 +171,7 @@ public:
         bool fastprune{false};
         bool enforce_bip94{false};
         std::optional<uint8_t> deposit_slot{};
+        bool dev_tax{false};
     };
 
     struct MainNetOptions {

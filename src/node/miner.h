@@ -134,6 +134,11 @@ int64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParam
 /** Update an old GenerateCoinbaseCommitment from CreateNewBlock after the block txs have changed */
 void RegenerateCommitments(CBlock& block, ChainstateManager& chainman);
 
+/** Have `coinbase`, whose first output is the miner's, claim `block_reward`
+ *  (subsidy plus fees): the dev tax (consensus/devtax.h) in an output to the
+ *  dev tax script right after the miner's, the rest in the miner's.  */
+void SetCoinbaseReward(CMutableTransaction& coinbase, CAmount block_reward, const Consensus::Params& consensus);
+
 /* Compute the block's merkle root, insert or replace the coinbase transaction and the merkle root into the block */
 void AddMerkleRootAndCoinbase(CBlock& block, CTransactionRef coinbase, uint32_t version, uint32_t timestamp, uint32_t nonce);
 

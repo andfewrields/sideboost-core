@@ -165,6 +165,17 @@ static_assert(MaxFutureBlockTime(BITCOIN_BLOCK_SPACING) == MAX_FUTURE_BLOCK_TIME
 static_assert(MaxFutureBlockTime(SIDEBOOST_BLOCK_SPACING) < SIDEBOOST_DIFFICULTY_WINDOW * SIDEBOOST_BLOCK_SPACING);
 
 /**
+ * The script the dev tax is paid to, on every network that has one.
+ *
+ * TODO: a placeholder; replace it with the dev's before launch.  It pays to
+ * a witness key hash (the first 20 bytes of SHA256("SideBoost dev tax
+ * placeholder: nobody has its key")) whose key nobody knows, so until then
+ * the tax is burned.  Mainnet address sb1qyvw3ywngdf3ggem3ln2yc58vc06trft7xhyjs2,
+ * test networks tsb1qyvw3ywngdf3ggem3ln2yc58vc06trft7u3kmvp.
+ */
+static const std::vector<unsigned char> SIDEBOOST_DEV_TAX_SCRIPT{"0014231d123a686a62846771fcd44c50ecc3f4b1a57e"_hex_v_u8};
+
+/**
  * Consensus rules shared by all SideBoost networks.  Mainnet uses them as is;
  * the test networks start from them and override only what testing needs, so
  * that they exercise the same rules as mainnet.  See PLAN.md for the rationale.
@@ -187,6 +198,8 @@ static void SetSideBoostConsensus(Consensus::Params& consensus)
     /* A deposit is credited once 3 ECX blocks (~30 min) are on top of its
        block, which makes undoing it through an ECX reorg rare.  */
     consensus.nDepositMinDepth = 3;
+    /* Every block pays a dev tax (consensus/devtax.h).  */
+    consensus.dev_tax_script = SIDEBOOST_DEV_TAX_SCRIPT;
     /* All buried deployments active from the start.  BIP34/65/66/CSV
        start at height 1 since the genesis block cannot satisfy them.  */
     consensus.BIP16Height = 0;
@@ -540,6 +553,10 @@ public:
         /* Testing: deposits only when asked for (-depositslot), since they
            need a parent chain and its enforcer.  */
         consensus.deposit_slot = opts.deposit_slot;
+        /* Testing: no dev tax unless asked for (-devtax), as Bitcoin's tests
+           expect coinbases to claim the whole reward.  */
+        consensus.dev_tax_script.clear();
+        if (opts.dev_tax) consensus.dev_tax_script = SIDEBOOST_DEV_TAX_SCRIPT;
 
         /* Testing: short versionbits periods, so deployments can be
            exercised in a few hundred blocks.  */

@@ -123,6 +123,7 @@ void ReadRegTestArgs(const ArgsManager& args, CChainParams::RegTestOptions& opti
         if (*slot < 0 || *slot > 255) throw std::runtime_error(strprintf("Invalid -depositslot (%d): must be a slot number (0 to 255)", *slot));
         options.deposit_slot = *slot;
     }
+    if (auto value = args.GetBoolArg("-devtax")) options.dev_tax = *value;
 
     HandleDeploymentArgs(args, options.dep_opts);
 }

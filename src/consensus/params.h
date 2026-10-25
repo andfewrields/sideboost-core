@@ -110,6 +110,9 @@ struct Params {
     /** Blocks on top of a deposit's parent chain block before the deposit
      *  can be credited (0: the parent chain's tip counts).  */
     int nDepositMinDepth{0};
+    /** The output script the coinbase pays the dev tax to (see
+     *  consensus/devtax.h).  Empty: no dev tax.  */
+    std::vector<unsigned char> dev_tax_script;
     /**
      * Hashes of blocks that
      * - are known to be consensus valid, and
