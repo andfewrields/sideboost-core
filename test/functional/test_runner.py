@@ -122,6 +122,7 @@ BASE_SCRIPTS = [
     'feature_devtax.py',
     'feature_minfee.py',
     'feature_sidechains.py',
+    'feature_difficulty_factor.py',
     'mempool_updatefromblock.py',
     'mempool_persist.py',
     # vv Tests less than 60s vv

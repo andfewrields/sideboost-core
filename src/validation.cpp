@@ -1959,6 +1959,18 @@ bool CheckProofOfWork(const CBlockHeader& block, const Consensus::Params& params
     return true;
 }
 
+uint256 GetPoWHash(const CBlockHeader& block)
+{
+    return block.auxpow ? block.auxpow->getParentBlockHash() : block.GetHash();
+}
+
+int GetBlockDifficultyFactor(const CBlock& block)
+{
+    int factor{1};
+    for (const CTransactionRef& tx : block.vtx) factor = std::max(factor, tx->DifficultyFactor());
+    return factor;
+}
+
 CAmount GetBlockSubsidy(int nHeight, const Consensus::Params& consensusParams)
 {
     int halvings = nHeight / consensusParams.nSubsidyHalvingInterval;
@@ -4294,6 +4306,15 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
     // Check the merkle root.
     if (fCheckMerkleRoot && !CheckMerkleRoot(block, state)) {
         return false;
+    }
+
+    // Transactions with a difficulty factor need a harder proof of work
+    if (fCheckPOW) {
+        const int factor{GetBlockDifficultyFactor(block)};
+        if (factor > 1 && !CheckProofOfWork(GetPoWHash(block), block.nBits, consensusParams, factor)) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "high-hash-factor",
+                                 strprintf("proof of work too weak for difficulty factor %d", factor));
+        }
     }
 
     // All potential-corruption validation must be done before we do any

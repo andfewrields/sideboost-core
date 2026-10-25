@@ -45,6 +45,7 @@ add_executable(test_namecoin
   denialofservice_tests.cpp
   deposit_tests.cpp
   devtax_tests.cpp
+  difficulty_factor_tests.cpp
   disconnected_transactions.cpp
   fees_util_tests.cpp
   feefrac_tests.cpp

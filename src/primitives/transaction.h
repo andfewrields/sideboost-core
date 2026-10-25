@@ -174,6 +174,32 @@ public:
 
 struct CMutableTransaction;
 
+/**
+ * A transaction's difficulty factor: a block including it must have a proof
+ * of work hash at most its target divided by the factor (the highest of its
+ * transactions').  Bits 16 to 23 of the version; 0 means 1, as for all
+ * transactions before.  A transaction with a factor has a version of at
+ * least 2^16, so BIP68 and CSV apply to it as to version 2.
+ */
+static constexpr int DIFFICULTY_FACTOR_SHIFT{16};
+static constexpr int MAX_DIFFICULTY_FACTOR{0xFF};
+
+constexpr int GetDifficultyFactor(uint32_t version)
+{
+    const int factor{int((version >> DIFFICULTY_FACTOR_SHIFT) & MAX_DIFFICULTY_FACTOR)};
+    return factor ? factor : 1;
+}
+
+/** `version` with difficulty factor `factor` (1 to MAX_DIFFICULTY_FACTOR).  */
+constexpr uint32_t WithDifficultyFactor(uint32_t version, int factor)
+{
+    version &= ~(uint32_t{MAX_DIFFICULTY_FACTOR} << DIFFICULTY_FACTOR_SHIFT);
+    return factor > 1 ? version | (uint32_t(factor) << DIFFICULTY_FACTOR_SHIFT) : version;
+}
+static_assert(GetDifficultyFactor(2) == 1);
+static_assert(GetDifficultyFactor(WithDifficultyFactor(2, 7)) == 7);
+static_assert(WithDifficultyFactor(WithDifficultyFactor(2, 7), 1) == 2);
+
 /** The txid of this chain's sidechain treasuries: slot S's treasury is the
  *  coin at (SidechainTreasuryTxid(), S), which no transaction creates.  See
  *  bip300/state.h.  */
@@ -404,6 +430,8 @@ public:
     std::string ToString() const;
 
     bool HasWitness() const { return m_has_witness; }
+
+    int DifficultyFactor() const { return GetDifficultyFactor(version); }
 };
 
 /** A mutable version of CTransaction. */

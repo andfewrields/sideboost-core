@@ -174,6 +174,15 @@ std::vector<uint32_t> GetDust(const CTransaction& tx, CFeeRate dust_relay_rate);
 inline constexpr decltype(CTransaction::version) TX_MIN_STANDARD_VERSION{1};
 inline constexpr decltype(CTransaction::version) TX_MAX_STANDARD_VERSION{3};
 
+/** Whether transactions of `version` are standard: TX_MIN_STANDARD_VERSION to
+ *  TX_MAX_STANDARD_VERSION, or version 2 with a difficulty factor
+ *  (primitives/transaction.h). */
+constexpr bool IsStandardTxVersion(uint32_t version)
+{
+    if (GetDifficultyFactor(version) > 1) return WithDifficultyFactor(version, 1) == 2;
+    return version >= TX_MIN_STANDARD_VERSION && version <= TX_MAX_STANDARD_VERSION;
+}
+
 /**
 * Check for standard transaction types
 * @return True if all outputs (scriptPubKeys) use only standard transaction forms

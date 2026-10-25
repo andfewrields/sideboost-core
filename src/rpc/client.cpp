@@ -88,6 +88,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "depositsidechain", 3, "fee_rate" },
     { "createbmmrequest", 0, "slot" },
     { "createbmmrequest", 2, "bid" },
+    { "createbmmrequest", 4, "difficulty_factor" },
     { "withdraw", 0, "address", ParamFormat::STRING },
     { "withdraw", 1, "amount" },
     { "withdraw", 2, "parent_fee" },

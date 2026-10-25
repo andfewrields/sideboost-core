@@ -117,6 +117,9 @@ AuxpowMiner::getCurrentBlock (ChainstateManager& chainman, Mining& miner,
   arithTarget.SetCompact (pblockCur->nBits, &fNegative, &fOverflow);
   if (fNegative || fOverflow || arithTarget == 0)
     throw std::runtime_error ("invalid difficulty bits in block");
+  /* SideBoost: as hard as the block's transactions' difficulty factor makes
+     it (see primitives/transaction.h).  */
+  arithTarget /= arith_uint256 (uint64_t (GetBlockDifficultyFactor (*pblockCur)));
   target = ArithToUint256 (arithTarget);
 
   return pblockCur;

@@ -432,6 +432,13 @@ arith_uint256 CalculateClaimedHeadersWork(std::span<const CBlockHeader> headers)
  */
 bool CheckProofOfWork(const CBlockHeader& block, const Consensus::Params& params);
 
+/** The hash a block's proof of work is: its parent block's (AuxPoW) or its own. */
+uint256 GetPoWHash(const CBlockHeader& block);
+
+/** A block's difficulty factor: its transactions' highest (see
+ *  primitives/transaction.h). */
+int GetBlockDifficultyFactor(const CBlock& block);
+
 enum class VerifyDBResult {
     SUCCESS,
     CORRUPTED_BLOCK_DB,

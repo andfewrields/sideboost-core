@@ -1548,7 +1548,9 @@ class TaprootTest(BitcoinTestFramework):
         while left:
             # Construct CTransaction with random version, nLocktime
             tx = CTransaction()
-            tx.version = random.choice(TX_STANDARD_VERSIONS + [0, TX_MAX_STANDARD_VERSION + 1, random.getrandbits(32)])
+            # SideBoost: bits 16 to 23 are a difficulty factor, which these
+            # blocks' proof of work isn't made for
+            tx.version = random.choice(TX_STANDARD_VERSIONS + [0, TX_MAX_STANDARD_VERSION + 1, random.getrandbits(32) & ~0xff0000])
             min_sequence = (tx.version != 1 and tx.version != 0) * 0x80000000  # The minimum sequence number to disable relative locktime
             if random.choice([True, False]):
                 tx.nLockTime = random.randrange(LOCKTIME_THRESHOLD, self.lastblocktime - 7200)  # all absolute locktimes in the past

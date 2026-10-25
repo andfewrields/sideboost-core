@@ -5,6 +5,7 @@
 
 #include <node/miner.h>
 
+#include <arith_uint256.h>
 #include <bip300/messages.h>
 #include <bip300/producer.h>
 #include <bip300/state.h>
@@ -55,6 +56,7 @@
 #include <functional>
 #include <numeric>
 #include <ranges>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -162,6 +164,7 @@ void BlockAssembler::resetBlock()
     m_sidechain_messages.clear();
     m_payouts.clear();
     m_bmm_requests.clear();
+    m_max_difficulty_factor = 1;
 }
 
 std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
@@ -202,10 +205,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
 
     if (m_mempool) {
         LOCK(m_mempool->cs);
-        chooseBmmRequests();
-        m_mempool->StartBlockBuilding();
-        addChunks();
-        m_mempool->StopBlockBuilding();
+        addMempoolTxs();
     }
     addPayouts();
 
@@ -380,7 +380,7 @@ void BlockAssembler::chooseBmmRequests()
     std::map<uint8_t, std::pair<CAmount, Txid>> best;
     for (const CTxMemPoolEntryRef& entry : m_mempool->entryAll()) {
         const auto request{bip300::ParseBmmRequest(entry.get().GetTx())};
-        if (!request || request->prev_block != tip) continue;
+        if (!request || request->prev_block != tip || entry.get().GetTx().DifficultyFactor() > m_max_difficulty_factor) continue;
         const std::pair bid{entry.get().GetModifiedFee(), entry.get().GetTx().GetHash()};
         const auto [it, inserted]{best.emplace(request->slot, bid)};
         if (!inserted && bid.first > it->second.first) it->second = bid;
@@ -390,6 +390,56 @@ void BlockAssembler::chooseBmmRequests()
         // Room for its M7
         nBlockWeight += ::GetSerializeSize(CTxOut{0, bip300::MakeCoinbaseMessageScript(bip300::BmmAccept{slot, uint256{}})}) * WITNESS_SCALE_FACTOR;
     }
+}
+
+void BlockAssembler::addMempoolTxs()
+{
+    // The block's transactions decide how hard its proof of work is: try each
+    // difficulty factor the mempool has, and keep the one earning the most
+    // per work.  The block so far (events, payouts' room) is the same for all.
+    std::set<int> factors{1};
+    for (const CTxMemPoolEntryRef& entry : m_mempool->entryAll()) factors.insert(entry.get().GetTx().DifficultyFactor());
+    CAmount payout_fees{0};
+    for (const CTransactionRef& payout : m_payouts) payout_fees += bip300::ParseM6Fee(*payout).value_or(0);
+
+    CBlockTemplate& tmpl{*pblocktemplate};
+    const auto weight{nBlockWeight}, sigops{nBlockSigOpsCost}, txs{nBlockTx};
+    const CAmount fees{nFees};
+    const size_t vtx{tmpl.block.vtx.size()}, feerates{tmpl.m_package_feerates.size()};
+    const auto restore{[&] {
+        nBlockWeight = weight;
+        nBlockSigOpsCost = sigops;
+        nBlockTx = txs;
+        nFees = fees;
+        tmpl.block.vtx.resize(vtx);
+        tmpl.vTxFees.resize(vtx - 1);
+        tmpl.vTxSigOpsCost.resize(vtx - 1);
+        tmpl.m_package_feerates.resize(feerates);
+        m_bmm_requests.clear();
+    }};
+    const auto fill{[&](int factor) EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs) {
+        m_max_difficulty_factor = factor;
+        chooseBmmRequests();
+        m_mempool->StartBlockBuilding();
+        addChunks();
+        m_mempool->StopBlockBuilding();
+    }};
+
+    int best{1};
+    CAmount best_fees{-1};
+    if (factors.size() > 1) {
+        for (const int factor : factors) {
+            fill(factor);
+            const CAmount block_fees{nFees + payout_fees};
+            // block_fees / factor > best_fees / best, ties to the lower factor
+            if (best_fees < 0 || arith_uint256(uint64_t(block_fees)) * arith_uint256(uint64_t(best)) > arith_uint256(uint64_t(best_fees)) * arith_uint256(uint64_t(factor))) {
+                best = factor;
+                best_fees = block_fees;
+            }
+            restore();
+        }
+    }
+    fill(best);
 }
 
 void BlockAssembler::addPayouts()
@@ -439,6 +489,7 @@ bool BlockAssembler::TestChunkTransactions(const std::vector<CTxMemPoolEntryRef>
         if (!IsFinalTx(tx.get().GetTx(), nHeight, m_lock_time_cutoff)) {
             return false;
         }
+        if (tx.get().GetTx().DifficultyFactor() > m_max_difficulty_factor) return false;
         // Only the BMM request chosen for its slot
         if (const auto request{bip300::ParseBmmRequest(tx.get().GetTx())}) {
             const auto chosen{m_bmm_requests.find(request->slot)};

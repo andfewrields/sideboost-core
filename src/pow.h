@@ -29,9 +29,15 @@ std::optional<arith_uint256> DeriveTarget(unsigned int nBits, uint256 pow_limit)
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params&);
 unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nFirstBlockTime, const Consensus::Params&);
 
-/** Check whether a block hash satisfies the proof-of-work requirement specified by nBits */
-bool CheckProofOfWork(uint256 hash, unsigned int nBits, const Consensus::Params&);
-bool CheckProofOfWorkImpl(uint256 hash, unsigned int nBits, const Consensus::Params&);
+/** Check whether a block hash satisfies the proof-of-work requirement
+ *  specified by nBits, made `difficulty_factor` times harder (the block's
+ *  transactions' highest difficulty factor, see primitives/transaction.h) */
+bool CheckProofOfWork(uint256 hash, unsigned int nBits, const Consensus::Params&, int difficulty_factor = 1);
+bool CheckProofOfWorkImpl(uint256 hash, unsigned int nBits, const Consensus::Params&, int difficulty_factor = 1);
+
+/** The target for a block with `nBits` and difficulty factor
+ *  `difficulty_factor`: nBits' target divided by the factor. */
+std::optional<arith_uint256> DeriveFactorTarget(unsigned int nBits, const Consensus::Params&, int difficulty_factor);
 
 /**
  * Return false if the proof-of-work requirement specified by new_nbits at a

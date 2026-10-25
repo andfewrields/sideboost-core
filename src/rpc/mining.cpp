@@ -174,8 +174,10 @@ static bool GenerateBlock(ChainstateManager& chainman, CBlock&& block, uint64_t&
     block_out.reset();
     block.hashMerkleRoot = BlockMerkleRoot(block);
 
+    // As hard as its transactions' difficulty factor makes it
+    const int factor{GetBlockDifficultyFactor(block)};
     auto& miningHeader = CAuxPow::initAuxPow(block);
-    while (max_tries > 0 && miningHeader.nNonce < std::numeric_limits<uint32_t>::max() && !CheckProofOfWork(miningHeader.GetHash(), block.nBits, chainman.GetConsensus()) && !chainman.m_interrupt) {
+    while (max_tries > 0 && miningHeader.nNonce < std::numeric_limits<uint32_t>::max() && !CheckProofOfWork(miningHeader.GetHash(), block.nBits, chainman.GetConsensus(), factor) && !chainman.m_interrupt) {
         ++miningHeader.nNonce;
         --max_tries;
     }
@@ -760,7 +762,7 @@ static RPCMethod getblocktemplate()
                     {RPCResult::Type::STR_HEX, "", "an output script"},
                 }},
                 {RPCResult::Type::STR, "longpollid", "an id to include with a request to longpoll on an update to this template"},
-                {RPCResult::Type::STR, "target", "The hash target"},
+                {RPCResult::Type::STR, "target", "The hash target (the bits' target divided by the block's difficulty factor, the highest of its transactions')"},
                 {RPCResult::Type::NUM_TIME, "mintime", "The minimum timestamp appropriate for the next block time, expressed in " + UNIX_EPOCH_TIME + ". Adjusted for the proposed BIP94 timewarp rule."},
                 {RPCResult::Type::ARR, "mutable", "list of ways the block template may be changed",
                 {
@@ -1014,7 +1016,9 @@ static RPCMethod getblocktemplate()
 
     UniValue aux(UniValue::VOBJ);
 
+    // SideBoost: divided by the template's difficulty factor
     arith_uint256 hashTarget = arith_uint256().SetCompact(block.nBits);
+    hashTarget /= arith_uint256(uint64_t(GetBlockDifficultyFactor(block)));
 
     UniValue aMutable(UniValue::VARR);
     aMutable.push_back("time");

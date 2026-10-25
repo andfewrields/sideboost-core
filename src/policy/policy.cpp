@@ -115,7 +115,7 @@ unsigned int GetMaxStandardTxSigOpsCost(const Consensus::Params& params)
 
 bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_datacarrier_bytes, bool permit_bare_multisig, const CFeeRate& dust_relay_fee, std::string& reason)
 {
-    if (tx.version > TX_MAX_STANDARD_VERSION || tx.version < TX_MIN_STANDARD_VERSION) {
+    if (!IsStandardTxVersion(tx.version)) {
         reason = "version";
         return false;
     }

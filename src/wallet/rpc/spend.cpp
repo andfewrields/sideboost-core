@@ -446,6 +446,8 @@ RPCMethod createbmmrequest()
                     {"sidechain_block_hash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The sidechain block to commit to (32 bytes, in the order the M7 holds them)."},
                     {"bid", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "The fee, in " + CURRENCY_UNIT + ": the miners take the highest bid in each slot. At least the fee at the wallet's fee rate."},
                     {"prev_block", RPCArg::Type::STR_HEX, RPCArg::DefaultHint{"the tip"}, "The block the request is for the next block on."},
+                    {"difficulty_factor", RPCArg::Type::NUM, RPCArg::Default{1}, "Its difficulty factor (1 to 255): only a block with a proof of work this many times harder can take it,\n"
+                                         "so on average one block in this many, for a sidechain with slower blocks."},
                 },
                 RPCResult{RPCResult::Type::OBJ, "", "", {
                     {RPCResult::Type::STR_HEX, "txid", "The transaction id."},
@@ -471,9 +473,13 @@ RPCMethod createbmmrequest()
     const uint256 prev_block{request.params[3].isNull() ? pwallet->GetLastBlockHash() : ParseHashV(request.params[3], "prev_block")};
     const CScript script{bip300::MakeBmmRequestScript({.slot = uint8_t(slot), .hash = uint256{hash}, .prev_block = prev_block})};
 
+    const int factor{request.params[4].isNull() ? 1 : request.params[4].getInt<int>()};
+    if (factor < 1 || factor > MAX_DIFFICULTY_FACTOR) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("difficulty_factor must be 1 to %d", MAX_DIFFICULTY_FACTOR));
+
     // Funded as if paying the bid to the request's output, which then pays
     // nothing: the bid goes to the fee
     CCoinControl coin_control;
+    coin_control.m_version = WithDifficultyFactor(CTransaction::CURRENT_VERSION, factor);
     std::vector<CRecipient> recipients{{CNoDestination{script}, bid, /*fSubtractFeeFromAmount=*/false}};
     auto res{CreateTransaction(*pwallet, recipients, /*change_pos=*/1, coin_control, /*sign=*/false)};
     if (!res) throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, util::ErrorString(res).original);

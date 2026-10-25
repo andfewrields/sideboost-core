@@ -78,6 +78,9 @@ private:
     std::vector<CScript> m_sidechain_messages;
     std::vector<CTransactionRef> m_payouts;
     std::map<uint8_t, Txid> m_bmm_requests;
+    // The highest difficulty factor (primitives/transaction.h) the block's
+    // transactions may have
+    int m_max_difficulty_factor{1};
 
     const CChainParams& chainparams;
     const CTxMemPool* const m_mempool;
@@ -117,6 +120,9 @@ private:
     void chooseBmmRequests() EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
     /** The payouts addSidechainPart picked, after the mempool's transactions. */
     void addPayouts();
+    /** Add the mempool's transactions, up to the difficulty factor that
+     *  earns the most fees per work (fees / factor). */
+    void addMempoolTxs() EXCLUSIVE_LOCKS_REQUIRED(::cs_main, m_mempool->cs);
     /** Add a tx to the block */
     void AddToBlock(const CTxMemPoolEntry& entry);
 
