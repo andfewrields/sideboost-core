@@ -8,6 +8,7 @@
 #include <bitcoin-build-config.h> // IWYU pragma: keep
 
 #include <addresstype.h>
+#include <bip300/messages.h>
 #include <blockfilter.h>
 #include <chain.h>
 #include <chainparams.h>
@@ -1504,6 +1505,9 @@ void CWallet::transactionRemovedFromMempool(const CTransactionRef& tx, MemPoolRe
     auto it = mapWallet.find(tx->GetHash());
     if (it != mapWallet.end()) {
         RefreshMempoolStatus(it->second, chain());
+        // A BMM request (bip300/messages.h) is valid on one block only: once
+        // the mempool drops it, it can't be mined, so free its inputs
+        if (reason == MemPoolRemovalReason::EXPIRY && bip300::ParseBmmRequest(*tx)) AbandonTransaction(it->second);
     }
     // Handle transactions that were removed from the mempool because they
     // conflict with transactions in a newly connected block.

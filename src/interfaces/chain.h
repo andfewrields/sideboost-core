@@ -190,6 +190,9 @@ public:
     //! Check if transaction is in mempool.
     virtual bool isInMempool(const Txid& txid) = 0;
 
+    //! The slots this chain's sidechains are active in (BIP300), at the tip.
+    virtual std::vector<uint8_t> getSidechainSlots() = 0;
+
     //! Check if transaction has descendants in mempool.
     virtual bool hasDescendantsInMempool(const Txid& txid) = 0;
 

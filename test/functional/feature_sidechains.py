@@ -53,6 +53,7 @@ class SidechainsTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
         self.setup_clean_chain = True
+        self.uses_wallet = None  # the wallet part only runs with a wallet
 
     def events(self, blockhash):
         return self.nodes[1].getsidechainevents(blockhash)
@@ -188,6 +189,9 @@ class SidechainsTest(BitcoinTestFramework):
         assert_equal(node0.submitblock(block.serialize().hex()), None)
         self.sync_all()
 
+        if self.is_wallet_compiled():
+            self.test_wallet()
+
         self.log.info("The producer's settings survive a restart")
         node0.setsidechainpolicy(bundle_policy="none")
         node0.setbundleack(SLOT, m6id)
@@ -195,6 +199,48 @@ class SidechainsTest(BitcoinTestFramework):
         producer = node0.getsidechainproducer()
         assert_equal((producer["bundle_policy"], producer["bundle_acks"]), ("none", [{"slot": SLOT, "m6id": m6id}]))
         assert_raises_rpc_error(-8, "Unknown bundle_policy", node0.setsidechainpolicy, bundle_policy="most")
+
+
+    def test_wallet(self):
+        node0, node1 = self.nodes
+        node0.createwallet("w")
+        w = node0.get_wallet_rpc("w")
+        self.generatetoaddress(node0, 101, w.getnewaddress())
+
+        self.log.info("Wallet deposits")
+        assert_raises_rpc_error(-8, "No sidechain is active in slot 10", w.depositsidechain, 10, "addr", 1)
+        treasury = self.treasury(node1)
+        txid = w.depositsidechain(SLOT, "s9_deposit_address", Decimal("0.25"))
+        block = self.generate(node0, 1)[0]
+        assert_equal(self.treasury(node1), treasury + Decimal("0.25"))
+        deposit = self.events(block)["deposits"][0]
+        assert_equal((deposit["txid"], deposit["address"], deposit["amount"]), (txid, b"s9_deposit_address".hex(), Decimal("0.25")))
+
+        self.log.info("Wallet BMM requests: the bid is the fee")
+        side_hash = bytes([7] * 32)
+        request = w.createbmmrequest(SLOT, side_hash.hex(), Decimal("0.001"))
+        assert_equal(request["fee"], Decimal("0.001"))
+        assert_equal(node0.getmempoolentry(request["txid"])["fees"]["base"], Decimal("0.001"))
+        assert_equal(w.gettransaction(request["txid"])["fee"], Decimal("-0.001"))
+        block = self.generate(node0, 1)[0]
+        assert_equal(self.events(block)["bmm"], [{"slot": SLOT, "hash": side_hash.hex()}])
+        assert request["txid"] in node0.getblock(block)["tx"]
+        assert_raises_rpc_error(-26, "The mempool rejected the request", w.createbmmrequest, SLOT, side_hash.hex(), Decimal("0.001"), node0.getblockhash(1))
+
+        self.log.info("A request the next block doesn't take expires, and the wallet abandons it")
+        self.disconnect_nodes(0, 1)
+        request = w.createbmmrequest(SLOT, side_hash.hex(), Decimal("0.001"))
+        inputs = [(i["txid"], i["vout"]) for i in w.gettransaction(request["txid"], True, True)["decoded"]["vin"]]
+        abandoned = lambda: all(d["abandoned"] for d in w.gettransaction(request["txid"])["details"] if d["category"] == "send")
+        assert not abandoned()
+        self.generate(node1, 1, sync_fun=self.no_op)
+        self.connect_nodes(0, 1)
+        self.sync_blocks()
+        self.wait_until(abandoned)
+        assert request["txid"] not in node0.getrawmempool()
+        # Its coins are free again
+        unspent = [(u["txid"], u["vout"]) for u in w.listunspent()]
+        assert all(i in unspent for i in inputs)
 
 
 if __name__ == '__main__':

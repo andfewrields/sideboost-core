@@ -5,6 +5,7 @@
 #include <bitcoin-build-config.h> // IWYU pragma: keep
 
 #include <banman.h>
+#include <bip300/state.h>
 #include <blockfilter.h>
 #include <chain.h>
 #include <chainparams.h>
@@ -767,6 +768,12 @@ public:
     {
         if (!m_node.mempool) return CFeeRate{DUST_RELAY_TX_FEE};
         return m_node.mempool->m_opts.dust_relay_feerate;
+    }
+    std::vector<uint8_t> getSidechainSlots() override
+    {
+        LOCK(::cs_main);
+        const auto state{bip300::ReadState(chainman().ActiveChainstate().CoinsTip())};
+        return state ? state->ActiveSlots() : std::vector<uint8_t>{};
     }
     bool havePruned() override
     {

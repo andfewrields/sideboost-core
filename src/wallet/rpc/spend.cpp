@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <bip300/messages.h>
 #include <chainparams.h>
 #include <common/messages.h>
 #include <consensus/validation.h>
@@ -14,6 +15,7 @@
 #include <rpc/rawtransaction_util.h>
 #include <rpc/util.h>
 #include <script/script.h>
+#include <util/moneystr.h>
 #include <util/rbf.h>
 #include <util/translation.h>
 #include <util/vector.h>
@@ -382,6 +384,123 @@ RPCMethod withdraw()
     SetFeeEstimateMode(*pwallet, coin_control, /*conf_target=*/UniValue{}, /*estimate_mode=*/UniValue{}, /*fee_rate=*/request.params[3], /*override_min_fee=*/false);
     std::vector<CRecipient> recipients{{CNoDestination{drivechain::MakeWithdrawalScript(payout_script, parent_fee)}, amount + parent_fee, /*fSubtractFeeFromAmount=*/false}};
     return SendMoney(*pwallet, coin_control, recipients, /*comment=*/std::nullopt, /*comment_to=*/std::nullopt, /*verbose=*/false);
+},
+    };
+}
+
+RPCMethod depositsidechain()
+{
+    return RPCMethod{
+        "depositsidechain",
+        "Deposit to one of this chain's sidechains (BIP300): the amount goes to the sidechain's treasury, and the sidechain\n"
+        "credits it to the address." +
+        HELP_REQUIRING_PASSPHRASE,
+                {
+                    {"slot", RPCArg::Type::NUM, RPCArg::Optional::NO, "The sidechain's slot (0 to 255), which must be active (see getsidechains)."},
+                    {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "The address on the sidechain, as the sidechain writes it."},
+                    {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "The amount to deposit, in " + CURRENCY_UNIT + "."},
+                    {"fee_rate", RPCArg::Type::AMOUNT, RPCArg::DefaultHint{"not set, fall back to wallet fee estimation"}, "Specify a fee rate in " + CURRENCY_ATOM + "/vB."},
+                },
+                RPCResult{RPCResult::Type::STR_HEX, "txid", "The transaction id."},
+                RPCExamples{
+                    HelpExampleCli("depositsidechain", "9 \"s9_1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2_a8d4c2\" 0.1")
+                    + HelpExampleRpc("depositsidechain", "9, \"s9_1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2_a8d4c2\", 0.1")
+                },
+        [](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
+{
+    std::shared_ptr<CWallet> const pwallet = GetWalletForJSONRPCRequest(request);
+    if (!pwallet) return UniValue::VNULL;
+    pwallet->BlockUntilSyncedToCurrentChain();
+    LOCK(pwallet->cs_wallet);
+
+    const int slot{request.params[0].getInt<int>()};
+    if (slot < 0 || slot > 255) throw JSONRPCError(RPC_INVALID_PARAMETER, "slot must be 0 to 255");
+    // Deposits to inactive slots are invalid (slots never deactivate)
+    const std::vector<uint8_t> slots{pwallet->chain().getSidechainSlots()};
+    if (std::ranges::find(slots, uint8_t(slot)) == slots.end()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("No sidechain is active in slot %d", slot));
+    }
+    const std::string& address{request.params[1].get_str()};
+    if (address.empty()) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Empty sidechain address");
+    const CAmount amount{AmountFromValue(request.params[2])};
+    if (amount <= 0) throw JSONRPCError(RPC_TYPE_ERROR, "Invalid amount");
+
+    CCoinControl coin_control;
+    SetFeeEstimateMode(*pwallet, coin_control, /*conf_target=*/UniValue{}, /*estimate_mode=*/UniValue{}, /*fee_rate=*/request.params[3], /*override_min_fee=*/false);
+    std::vector<CRecipient> recipients{{CNoDestination{bip300::MakeDepositScript(uint8_t(slot), MakeUCharSpan(address))}, amount, /*fSubtractFeeFromAmount=*/false}};
+    return SendMoney(*pwallet, coin_control, recipients, /*comment=*/std::nullopt, /*comment_to=*/std::nullopt, /*verbose=*/false);
+},
+    };
+}
+
+RPCMethod createbmmrequest()
+{
+    return RPCMethod{
+        "createbmmrequest",
+        "Request that the next block commit to a block of one of this chain's sidechains (BIP301 blind merged mining):\n"
+        "send a BMM request (M8), whose fee is the bid.  Only a block on prev_block can take it, so the mempool drops it\n"
+        "with the next block, and the wallet then abandons it, freeing its coins." +
+        HELP_REQUIRING_PASSPHRASE,
+                {
+                    {"slot", RPCArg::Type::NUM, RPCArg::Optional::NO, "The sidechain's slot (0 to 255)."},
+                    {"sidechain_block_hash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The sidechain block to commit to (32 bytes, in the order the M7 holds them)."},
+                    {"bid", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "The fee, in " + CURRENCY_UNIT + ": the miners take the highest bid in each slot. At least the fee at the wallet's fee rate."},
+                    {"prev_block", RPCArg::Type::STR_HEX, RPCArg::DefaultHint{"the tip"}, "The block the request is for the next block on."},
+                },
+                RPCResult{RPCResult::Type::OBJ, "", "", {
+                    {RPCResult::Type::STR_HEX, "txid", "The transaction id."},
+                    {RPCResult::Type::STR_AMOUNT, "fee", "Its fee: the bid (more, by the fee at the wallet's fee rate, if it has no change)."},
+                }},
+                RPCExamples{
+                    HelpExampleCli("createbmmrequest", "9 \"<sidechain block hash>\" 0.0001")
+                },
+        [](const RPCMethod& self, const JSONRPCRequest& request) -> UniValue
+{
+    std::shared_ptr<CWallet> const pwallet = GetWalletForJSONRPCRequest(request);
+    if (!pwallet) return UniValue::VNULL;
+    pwallet->BlockUntilSyncedToCurrentChain();
+    LOCK(pwallet->cs_wallet);
+    EnsureWalletIsUnlocked(*pwallet);
+
+    const int slot{request.params[0].getInt<int>()};
+    if (slot < 0 || slot > 255) throw JSONRPCError(RPC_INVALID_PARAMETER, "slot must be 0 to 255");
+    const std::vector<unsigned char> hash{ParseHexV(request.params[1], "sidechain_block_hash")};
+    if (hash.size() != uint256::size()) throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_block_hash must be 32 bytes");
+    const CAmount bid{AmountFromValue(request.params[2])};
+    if (bid <= 0) throw JSONRPCError(RPC_TYPE_ERROR, "Invalid bid");
+    const uint256 prev_block{request.params[3].isNull() ? pwallet->GetLastBlockHash() : ParseHashV(request.params[3], "prev_block")};
+    const CScript script{bip300::MakeBmmRequestScript({.slot = uint8_t(slot), .hash = uint256{hash}, .prev_block = prev_block})};
+
+    // Funded as if paying the bid to the request's output, which then pays
+    // nothing: the bid goes to the fee
+    CCoinControl coin_control;
+    std::vector<CRecipient> recipients{{CNoDestination{script}, bid, /*fSubtractFeeFromAmount=*/false}};
+    auto res{CreateTransaction(*pwallet, recipients, /*change_pos=*/1, coin_control, /*sign=*/false)};
+    if (!res) throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, util::ErrorString(res).original);
+    CMutableTransaction mtx{*res->tx};
+    CHECK_NONFATAL(mtx.vout[0].scriptPubKey == script);
+    mtx.vout[0].nValue = 0;
+    // The bid is all the fee: the change gets back what the fee rate asked
+    if (res->fee > bid) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("The bid is below the transaction's fee at the wallet's fee rate (%s)", FormatMoney(res->fee)));
+    CAmount fee{res->fee + bid};
+    if (res->change_pos) {
+        mtx.vout[*res->change_pos].nValue += res->fee;
+        fee = bid;
+    }
+    if (fee > pwallet->m_default_max_tx_fee) throw JSONRPCError(RPC_WALLET_ERROR, "Fee exceeds the maximum set with -maxtxfee");
+    if (!pwallet->SignTransaction(mtx)) throw JSONRPCError(RPC_WALLET_ERROR, "Signing failed");
+    const CTransactionRef tx{MakeTransactionRef(std::move(mtx))};
+    pwallet->CommitTransaction(tx, /*mapValue=*/{}, /*orderForm=*/{});
+    // Rejected (made for another block than the tip): it never will be
+    if (!pwallet->chain().isInMempool(tx->GetHash())) {
+        pwallet->AbandonTransaction(tx->GetHash());
+        throw JSONRPCError(RPC_VERIFY_REJECTED, "The mempool rejected the request (is prev_block the tip?)");
+    }
+
+    UniValue result{UniValue::VOBJ};
+    result.pushKV("txid", tx->GetHash().GetHex());
+    result.pushKV("fee", ValueFromAmount(fee));
+    return result;
 },
     };
 }
