@@ -192,15 +192,12 @@ static_assert(SidechainPeriods(10).unused_slot_proposal_max_age == 60'480);
 static_assert(SidechainPeriods(10).unused_slot_activation_threshold == 54'450);
 
 /**
- * The script the dev tax is paid to, on every network that has one.
- *
- * TODO: a placeholder; replace it with the dev's before launch.  It pays to
- * a witness key hash (the first 20 bytes of SHA256("SideBoost dev tax
- * placeholder: nobody has its key")) whose key nobody knows, so until then
- * the tax is burned.  Mainnet address sb1qyvw3ywngdf3ggem3ln2yc58vc06trft7xhyjs2,
- * test networks tsb1qyvw3ywngdf3ggem3ln2yc58vc06trft7u3kmvp.
+ * The script the dev tax is paid to, on every network that has one: the
+ * dev's P2WPKH output.  Mainnet address sb1qzgqfk8nr0qgwqe79nx422w6vw3sk9590kpl3ka,
+ * test networks tsb1qzgqfk8nr0qgwqe79nx422w6vw3sk9590v8dc2k (on Bitcoin,
+ * bc1qzgqfk8nr0qgwqe79nx422w6vw3sk9590eq08d3, the same key).
  */
-static const std::vector<unsigned char> SIDEBOOST_DEV_TAX_SCRIPT{"0014231d123a686a62846771fcd44c50ecc3f4b1a57e"_hex_v_u8};
+static const std::vector<unsigned char> SIDEBOOST_DEV_TAX_SCRIPT{"001412009b1e637810e067c599aaa53b4c746162d0af"_hex_v_u8};
 
 /**
  * Consensus rules shared by all SideBoost networks.  Mainnet uses them as is;

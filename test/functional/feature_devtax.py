@@ -17,7 +17,7 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
 from test_framework.wallet import MiniWallet
 
-DEV_TAX_SCRIPT = "0014231d123a686a62846771fcd44c50ecc3f4b1a57e"
+DEV_TAX_SCRIPT = "001412009b1e637810e067c599aaa53b4c746162d0af"
 
 
 def dev_tax(reward):
