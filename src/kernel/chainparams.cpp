@@ -167,16 +167,16 @@ static_assert(MaxFutureBlockTime(SIDEBOOST_BLOCK_SPACING) < SIDEBOOST_DIFFICULTY
 /**
  * BIP300's voting periods for our own sidechains, for blocks `spacing`
  * seconds apart: the spec's (for Bitcoin's 10 minutes), in proportion to the
- * spacing, then 4× shorter for withdrawals (and the replacement of a used
+ * spacing, then 3× shorter for withdrawals (and the replacement of a used
  * slot, which the spec ties to them) and 2× shorter for activating an unused
- * slot.  At 10 s: 394,500 / 197,250 blocks (~46 / ~23 days), and 60,480 /
+ * slot.  At 10 s: 526,000 / 263,000 blocks (~61 / ~30 days), and 60,480 /
  * 54,450 (~7 / ~6.3 days).
  */
 static constexpr Consensus::SidechainParams SidechainPeriods(int64_t spacing)
 {
     const uint32_t blocks{static_cast<uint32_t>(BITCOIN_BLOCK_SPACING / spacing)};
-    const uint32_t withdrawal_max_age{26'300 * blocks / 4};
-    const uint32_t withdrawal_threshold{13'150 * blocks / 4};
+    const uint32_t withdrawal_max_age{26'300 * blocks / 3};
+    const uint32_t withdrawal_threshold{13'150 * blocks / 3};
     return {
         .withdrawal_bundle_max_age = withdrawal_max_age,
         .withdrawal_bundle_inclusion_threshold = withdrawal_threshold,
@@ -186,8 +186,8 @@ static constexpr Consensus::SidechainParams SidechainPeriods(int64_t spacing)
         .unused_slot_activation_threshold = 1'815 * blocks / 2,
     };
 }
-static_assert(SidechainPeriods(10).withdrawal_bundle_max_age == 394'500);
-static_assert(SidechainPeriods(10).withdrawal_bundle_inclusion_threshold == 197'250);
+static_assert(SidechainPeriods(10).withdrawal_bundle_max_age == 526'000);
+static_assert(SidechainPeriods(10).withdrawal_bundle_inclusion_threshold == 263'000);
 static_assert(SidechainPeriods(10).unused_slot_proposal_max_age == 60'480);
 static_assert(SidechainPeriods(10).unused_slot_activation_threshold == 54'450);
 
