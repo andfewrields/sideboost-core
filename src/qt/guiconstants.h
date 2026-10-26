@@ -46,13 +46,13 @@ inline constexpr int TOOLTIP_WRAP_THRESHOLD = 80;
 /* Number of frames in spinner animation */
 #define SPINNER_FRAMES 36
 
-#define QAPP_ORG_NAME "Namecoin"
-#define QAPP_ORG_DOMAIN "namecoin.org"
-#define QAPP_APP_NAME_DEFAULT "Namecoin-Qt"
-#define QAPP_APP_NAME_TESTNET "Namecoin-Qt-testnet"
-#define QAPP_APP_NAME_TESTNET4 "Namecoin-Qt-testnet4"
-#define QAPP_APP_NAME_SIGNET "Namecoin-Qt-signet"
-#define QAPP_APP_NAME_REGTEST "Namecoin-Qt-regtest"
+#define QAPP_ORG_NAME "SideBoost"
+#define QAPP_ORG_DOMAIN "sideboost.invalid"
+#define QAPP_APP_NAME_DEFAULT "SideBoost-Qt"
+#define QAPP_APP_NAME_TESTNET "SideBoost-Qt-testnet"
+#define QAPP_APP_NAME_TESTNET4 "SideBoost-Qt-testnet4"
+#define QAPP_APP_NAME_SIGNET "SideBoost-Qt-signet"
+#define QAPP_APP_NAME_REGTEST "SideBoost-Qt-regtest"
 
 /* One gigabyte (GB) in bytes */
 inline constexpr uint64_t GB_BYTES{1'000'000'000};

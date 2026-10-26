@@ -26,7 +26,7 @@ get_directory_property(precious_variables CACHE_VARIABLES)
 #=============================
 # Project / Package metadata
 #=============================
-set(CLIENT_NAME "Namecoin Core")
+set(CLIENT_NAME "SideBoost Core")
 set(CLIENT_VERSION_MAJOR 32)
 set(CLIENT_VERSION_MINOR 0)
 set(CLIENT_VERSION_BUILD 0)
@@ -52,8 +52,8 @@ set(CMAKE_TRY_COMPILE_PLATFORM_VARIABLES
 
 project(NamecoinCore
   VERSION ${CLIENT_VERSION_MAJOR}.${CLIENT_VERSION_MINOR}.${CLIENT_VERSION_BUILD}
-  DESCRIPTION "Namecoin client software"
-  HOMEPAGE_URL "https://namecoin.org/"
+  DESCRIPTION "SideBoost client software"
+  HOMEPAGE_URL "https://github.com/andfewrields/sideboost-core"
   LANGUAGES NONE
 )
 
@@ -64,7 +64,7 @@ endif()
 
 set(COPYRIGHT_HOLDERS "The %s developers")
 set(COPYRIGHT_HOLDERS_FINAL "The ${CLIENT_NAME} developers")
-set(CLIENT_BUGREPORT "https://github.com/namecoin/namecoin-core/issues")
+set(CLIENT_BUGREPORT "https://github.com/andfewrields/sideboost-core/issues")
 
 #=============================
 # Language setup
