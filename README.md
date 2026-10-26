@@ -38,6 +38,35 @@ The executables are `sideboostd`, `sideboost-qt`, `sideboost-cli`,
 `sideboost-tx`, `sideboost-util` and `sideboost-wallet`; the data directory is
 `~/.sideboost`.
 
+Running a node
+--------------
+
+A node needs an enforcer to learn about ECX. The simplest is the
+[light-enforcer](https://github.com/andfewrields/light-enforcer), which
+follows ECX without an ECX node (see its README for building it). In two
+terminals:
+
+```bash
+# 1. the enforcer, ready when it serves a tip (a few minutes at first)
+light-enforcer --assume-slot-active
+
+# 2. the node
+sideboostd -printtoconsole -enforcer=127.0.0.1:50051
+```
+
+**Beta testing: `--assume-slot-active`.** Slot 83 isn't active on ECX yet.
+With this option the light enforcer reports the slot's deposits as if it
+were, so SideBoost can be tried with real ECX deposits. It's off by default
+and only for testing:
+
+* Every SideBoost node on the network must use it. A node without it sees
+  none of these deposits, and stops at the first block that credits one.
+* The coins can't come back. Before activation the slot's treasury output is
+  anyone-can-spend on ECX and withdrawals never pay out, so deposit only tiny
+  amounts. Nothing deposited before activation is in the treasury afterwards.
+* The genesis block will be re-mined before the real launch, so a beta chain
+  won't carry over.
+
 License
 -------
 
