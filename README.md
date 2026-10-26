@@ -1,98 +1,72 @@
-Namecoin Core integration/staging tree
-=====================================
+SideBoost Core
+==============
 
-[![Build Status](https://travis-ci.org/namecoin/namecoin-core.svg?branch=master)](https://travis-ci.org/namecoin/namecoin-core)
+> **⚠️ Experimental.** Both SideBoost's design and this code are experimental
+> and have seen little real-world use. They may have bugs that lose coins,
+> and the rules may still change. Don't put more money into SideBoost than
+> you are ready to lose.
 
-https://namecoin.org
+What is SideBoost?
+------------------
 
-What is Namecoin? 
-----------------
+SideBoost is a drivechain (BIP300 sidechain) of eCash (ECX), meant to enable
+fast drivechains.
 
-Namecoin is a decentralized open source information registration and transfer system based on the Bitcoin cryptocurrency.
+* **Pegged to ECX.** SideBoost has no coin of its own and no block subsidy:
+  its coins are ECX, deposited into its sidechain slot on ECX (slot 83) and
+  withdrawn through BIP300 withdrawal bundles that ECX miners vote on.
+* **10-second blocks**, with Bitcoin's throughput per unit of time (block
+  weight and sigops scaled to the interval).
+* **Its own proof of work, with AuxPoW**: blocks can be merge-mined by ECX
+  miners, or mined on their own. SideBoost is a fork of
+  [Namecoin Core](https://github.com/namecoin/namecoin-core), the
+  longest-running merge-mined chain, without its name system.
+* **A home for further drivechains.** SideBoost enforces BIP300 and BIP301
+  (blind merged mining) itself, so other drivechains can be activated on top
+  of it, with deposits, withdrawals and BMM, at SideBoost's speed.
 
-What does it do?
-----------------
+How it works, briefly
+---------------------
 
-* Securely record and transfer arbitrary names (keys).
-* Attach a value (data) to the names (up to 520 bytes, more in the future).
-* Transact namecoins, the digital currency (ℕ, NMC).
+| | |
+|---|---|
+| Deposits from ECX | A SideBoost node learns about deposits to slot 83 from a BIP300 enforcer (`-enforcer=host:port`): the full [bip300301_enforcer](https://github.com/LayerTwo-Labs/bip300301_enforcer) with an ECX node, or a light enforcer that follows ECX without one. Blocks credit them once 3 ECX blocks are on top |
+| Withdrawals to ECX | The `withdraw` RPC queues a withdrawal; nodes bundle queued withdrawals and propose each bundle to ECX's miners, who vote on it over ECX's BIP300 period |
+| Drivechains on top | Sidechains propose and activate in SideBoost's slots, take deposits and pay out withdrawal bundles voted by SideBoost's miners, and are blind-merge-mined in SideBoost blocks (see `getsidechains`, `depositsidechain`, `createbmmrequest`) |
 
-Namecoin was the first fork of Bitcoin and still is one of the most innovative altcoins. It was first to implement merged mining and a decentralized DNS. Namecoin squares Zooko's Triangle!
-
-What can it be used for?
-----------------
-
-* Protect free-speech rights online by making the web more resistant to censorship.
-* Access websites using the .bit domain (with TLS/SSL).
-* Store identity information such as email, GPG key, BTC address, TLS fingerprints, Bitmessage address, etc.
-* Human readable Tor .onion names/domains.
-* File signatures, Voting, bonds/stocks,/shares, web of trust, escrow and notary services (to be implemented).
-
-For more information, as well as an immediately useable, binary version of
-the Namecoin Core software, see https://www.namecoin.org/download.
+The executables are `sideboostd`, `sideboost-qt`, `sideboost-cli`,
+`sideboost-tx`, `sideboost-util` and `sideboost-wallet`; the data directory is
+`~/.sideboost`.
 
 License
 -------
 
-Namecoin Core is released under the terms of the MIT license. See [COPYING](COPYING) for more
-information or see https://opensource.org/license/MIT.
+SideBoost Core is released under the terms of the MIT license. See
+[COPYING](COPYING) for more information or see
+https://opensource.org/license/MIT. It builds on Namecoin Core and Bitcoin
+Core, whose copyright notices are kept.
 
-Development Process
--------------------
+Building
+--------
 
-The `master` branch is regularly built (see doc/build-*.md for instructions) and tested, but is not guaranteed to be
-completely stable. [Tags](https://github.com/namecoin/namecoin-core/tags) are created
-regularly to indicate new official, stable release versions of Namecoin Core.
+See the `doc/build-*.md` files for instructions; on Linux, for example:
 
-The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md)
-and useful hints for developers can be found in [doc/developer-notes.md](doc/developer-notes.md).
-
-The developer [forum](https://forum.namecoin.info/viewforum.php?f=4)
-should be used to discuss complicated or controversial changes before working
-on a patch set.
-
-Developer IRC can be found on Freenode at #namecoin-dev.
+```bash
+cmake -B build
+cmake --build build
+```
 
 Testing
 -------
 
-Testing and code review is the bottleneck for development; we get more pull
-requests than we can review and test on short notice. Please be patient and help out by testing
-other people's pull requests, and remember this is a security-critical project where any mistake might cost people
-lots of money.
+Unit tests can be run (assuming they weren't disabled when generating the
+build system) with `ctest --test-dir build`, or `build/bin/test_sideboost`.
+Further details on running and extending unit tests can be found in
+[/src/test/README.md](/src/test/README.md).
 
-### Automated Testing
-
-Developers are strongly encouraged to write [unit tests](src/test/README.md) for new code, and to
-submit new unit tests for old code. Unit tests can be compiled and run
-(assuming they weren't disabled during the generation of the build system) with: `ctest`. Further details on running
-and extending unit tests can be found in [/src/test/README.md](/src/test/README.md).
-
-There are also [regression and integration tests](/test), written
-in Python.
-These tests can be run (if the [test dependencies](/test) are installed) with: `build/test/functional/test_runner.py`
-(assuming `build` is your build directory).
-
-The CI (Continuous Integration) systems make sure that every pull request is tested on Windows, Linux, and macOS.
-The CI must pass on all commits before merge to avoid unrelated CI failures on new pull requests.
-
-### Manual Quality Assurance (QA) Testing
-
-Changes should be tested by somebody other than the developer who wrote the
-code. This is especially important for large or high-risk changes. It is useful
-to add a test plan to the pull request description if testing the changes is
-not straightforward.
-
-Translations
-------------
-
-**Translation workflow is not yet set up for Namecoin Core.  For strings which are common to Bitcoin Core, see below.**
-
-Changes to translations as well as new translations can be submitted to
-[Bitcoin Core's Transifex page](https://explore.transifex.com/bitcoin/bitcoin/).
-
-Translations are periodically pulled from Transifex and merged into the git repository. See the
-[translation process](doc/translation_process.md) for details on how this works.
-
-**Important**: We do not accept translation changes as GitHub pull requests because the next
-pull from Transifex would automatically overwrite them again.
+There are also [regression and integration tests](/test), written in Python.
+They can be run (if the [test dependencies](/test) are installed) with
+`build/test/functional/test_runner.py` (assuming `build` is your build
+directory). The tests of deposits and withdrawals need an ECX node and a
+`bip300301_enforcer`, found through the `ECX_BITCOIND` and
+`BIP300301_ENFORCER` environment variables.
