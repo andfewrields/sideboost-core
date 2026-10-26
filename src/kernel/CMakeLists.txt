@@ -8,7 +8,7 @@ include(GNUInstallDirs)
 #       library, as more and more modules are decoupled from the
 #       consensus engine, this list will shrink to only those
 #       which are absolutely necessary.
-add_library(namecoinkernel
+add_library(sideboostkernel
   bitcoinkernel.cpp
   chain.cpp
   checks.cpp
@@ -98,7 +98,7 @@ target_link_libraries(bitcoin_crypto PRIVATE kernel_warn_interface)
 target_link_libraries(leveldb PRIVATE kernel_warn_interface)
 target_link_libraries(crc32c PRIVATE kernel_warn_interface)
 
-target_link_libraries(namecoinkernel
+target_link_libraries(sideboostkernel
   PRIVATE
     core_interface
     kernel_warn_interface
@@ -111,27 +111,27 @@ target_link_libraries(namecoinkernel
 target_include_directories(bitcoinkernel PRIVATE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/leveldb/include>)
 
 # Add a convenience libbitcoinkernel target as a synonym for bitcoinkernel.
-add_custom_target(libnamecoinkernel)
-add_dependencies(libnamecoinkernel namecoinkernel)
+add_custom_target(libsideboostkernel)
+add_dependencies(libsideboostkernel sideboostkernel)
 
-get_target_property(namecoinkernel_type namecoinkernel TYPE)
-if(namecoinkernel_type STREQUAL "STATIC_LIBRARY")
-  target_compile_definitions(namecoinkernel PUBLIC BITCOINKERNEL_STATIC)
+get_target_property(sideboostkernel_type sideboostkernel TYPE)
+if(sideboostkernel_type STREQUAL "STATIC_LIBRARY")
+  target_compile_definitions(sideboostkernel PUBLIC BITCOINKERNEL_STATIC)
 endif()
 
 configure_file(${PROJECT_SOURCE_DIR}/libbitcoinkernel.pc.in ${PROJECT_BINARY_DIR}/libbitcoinkernel.pc @ONLY)
-install(FILES ${PROJECT_BINARY_DIR}/libbitcoinkernel.pc DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig" COMPONENT libnamecoinkernel)
+install(FILES ${PROJECT_BINARY_DIR}/libbitcoinkernel.pc DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig" COMPONENT libsideboostkernel)
 
-install(TARGETS namecoinkernel
+install(TARGETS sideboostkernel
   RUNTIME
     DESTINATION ${CMAKE_INSTALL_BINDIR}
-    COMPONENT libnamecoinkernel
+    COMPONENT libsideboostkernel
   LIBRARY
     DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    COMPONENT libnamecoinkernel
+    COMPONENT libsideboostkernel
   ARCHIVE
     DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    COMPONENT libnamecoinkernel
+    COMPONENT libsideboostkernel
 )
 
 install(FILES bitcoinkernel.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} COMPONENT libbitcoinkernel)

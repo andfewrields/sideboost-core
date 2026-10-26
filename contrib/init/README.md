@@ -1,11 +1,11 @@
 Sample configuration files for:
 ```
-systemd: namecoind.service
-Upstart: namecoind.conf
-OpenRC:  namecoind.openrc
-         namecoind.openrcconf
-CentOS:  namecoind.init
-macOS:   org.namecoin.namecoind.plist
+systemd: sideboostd.service
+Upstart: sideboostd.conf
+OpenRC:  sideboostd.openrc
+         sideboostd.openrcconf
+CentOS:  sideboostd.init
+macOS:   org.sideboost.sideboostd.plist
 ```
 have been made available to assist packagers in creating node packages here.
 

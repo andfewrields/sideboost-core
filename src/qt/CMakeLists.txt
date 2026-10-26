@@ -255,36 +255,36 @@ endif()
 
 add_subdirectory(locale)
 
-add_executable(namecoin-qt WIN32
+add_executable(sideboost-qt WIN32
   main.cpp
   res/bitcoin-qt-res.rc
   ../init/bitcoin-qt.cpp
 )
 
-add_windows_application_manifest(namecoin-qt)
+add_windows_application_manifest(sideboost-qt)
 
-target_link_libraries(namecoin-qt
+target_link_libraries(sideboost-qt
   core_interface
   bitcoinqt
   bitcoin_node
 )
 
-import_plugins(namecoin-qt)
-install_binary_component(namecoin-qt HAS_MANPAGE)
+import_plugins(sideboost-qt)
+install_binary_component(sideboost-qt HAS_MANPAGE)
 
 if(ENABLE_IPC)
-  add_executable(namecoin-gui WIN32
+  add_executable(sideboost-gui WIN32
     main.cpp
     ../init/bitcoin-gui.cpp
   )
-  target_link_libraries(namecoin-gui
+  target_link_libraries(sideboost-gui
     core_interface
     bitcoinqt
     bitcoin_node
     bitcoin_ipc
   )
-  import_plugins(namecoin-gui)
-  install_binary_component(namecoin-gui INTERNAL)
+  import_plugins(sideboost-gui)
+  install_binary_component(sideboost-gui INTERNAL)
 endif()
 
 if(BUILD_GUI_TESTS)

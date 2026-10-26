@@ -15,13 +15,13 @@ BEGIN
         BLOCK "040904E4" // U.S. English - multilingual (hex)
         BEGIN
             VALUE "CompanyName",        CLIENT_NAME " project"
-            VALUE "FileDescription",    "namecoin-tx (CLI Namecoin transaction editor utility)"
+            VALUE "FileDescription",    "sideboost-tx (CLI Namecoin transaction editor utility)"
             VALUE "FileVersion",        CLIENT_VERSION_STRING
-            VALUE "InternalName",       "namecoin-tx"
+            VALUE "InternalName",       "sideboost-tx"
             VALUE "LegalCopyright",     COPYRIGHT_STR
             VALUE "LegalTrademarks1",   "Distributed under the MIT software license, see the accompanying file COPYING or http://www.opensource.org/licenses/mit-license.php."
-            VALUE "OriginalFilename",   "namecoin-tx.exe"
-            VALUE "ProductName",        "namecoin-tx"
+            VALUE "OriginalFilename",   "sideboost-tx.exe"
+            VALUE "ProductName",        "sideboost-tx"
             VALUE "ProductVersion",     CLIENT_VERSION_STRING
         END
     END

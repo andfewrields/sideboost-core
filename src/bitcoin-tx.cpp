@@ -109,17 +109,17 @@ static int AppInitRawTx(int argc, char* argv[])
 
     if (argc < 2 || HelpRequested(gArgs) || gArgs.GetBoolArg("-version", false)) {
         // First part of help message is specific to this utility
-        std::string strUsage = CLIENT_NAME " namecoin-tx utility version " + FormatFullVersion() + "\n";
+        std::string strUsage = CLIENT_NAME " sideboost-tx utility version " + FormatFullVersion() + "\n";
 
         if (gArgs.GetBoolArg("-version", false)) {
             strUsage += FormatParagraph(LicenseInfo());
         } else {
             strUsage += "\n"
-                "The namecoin-tx tool is used for creating and modifying transactions.\n\n"
-                "namecoin-tx can be used with \"<hex-tx> [commands]\" to update a hex-encoded transaction, or with \"-create [commands]\" to create a hex-encoded transaction.\n"
+                "The sideboost-tx tool is used for creating and modifying transactions.\n\n"
+                "sideboost-tx can be used with \"<hex-tx> [commands]\" to update a hex-encoded transaction, or with \"-create [commands]\" to create a hex-encoded transaction.\n"
                 "\n"
-                "Usage: namecoin-tx [options] <hex-tx> [commands]\n"
-                "or:    namecoin-tx [options] -create [commands]\n"
+                "Usage: sideboost-tx [options] <hex-tx> [commands]\n"
+                "or:    sideboost-tx [options] -create [commands]\n"
                 "\n";
             strUsage += gArgs.GetHelpMessage();
         }

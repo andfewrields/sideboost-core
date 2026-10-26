@@ -129,7 +129,7 @@ bool DecryptSecret(const CKeyingMaterial& master_key, const std::span<const unsi
     return key_crypter.Decrypt(ciphertext, plaintext);
 }
 
-/* The old namecoind encrypted not the 32-byte secret, but the full 279-byte
+/* The old sideboostd encrypted not the 32-byte secret, but the full 279-byte
    serialised keys.  Thus, we need to handle both formats.  This is done
    by the following utility routine:  It decrypts a secret and initialises
    a CKey object from it.  */

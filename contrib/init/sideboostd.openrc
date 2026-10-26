@@ -5,23 +5,23 @@
 if [ -d "/var/lib/namecoin/.namecoin" ]; then
 	NAMECOIND_DEFAULT_DATADIR="/var/lib/namecoin/.namecoin"
 else
-	NAMECOIND_DEFAULT_DATADIR="/var/lib/namecoind"
+	NAMECOIND_DEFAULT_DATADIR="/var/lib/sideboostd"
 fi
 
 NAMECOIND_CONFIGFILE=${NAMECOIND_CONFIGFILE:-/etc/namecoin/namecoin.conf}
-NAMECOIND_PIDDIR=${NAMECOIND_PIDDIR:-/var/run/namecoind}
-NAMECOIND_PIDFILE=${NAMECOIND_PIDFILE:-${NAMECOIND_PIDDIR}/namecoind.pid}
+NAMECOIND_PIDDIR=${NAMECOIND_PIDDIR:-/var/run/sideboostd}
+NAMECOIND_PIDFILE=${NAMECOIND_PIDFILE:-${NAMECOIND_PIDDIR}/sideboostd.pid}
 NAMECOIND_DATADIR=${NAMECOIND_DATADIR:-${NAMECOIND_DEFAULT_DATADIR}}
 NAMECOIND_USER=${NAMECOIND_USER:-${NAMECOIN_USER:-namecoin}}
 NAMECOIND_GROUP=${NAMECOIND_GROUP:-namecoin}
-NAMECOIND_BIN=${NAMECOIND_BIN:-/usr/bin/namecoind}
+NAMECOIND_BIN=${NAMECOIND_BIN:-/usr/bin/sideboostd}
 NAMECOIND_NICE=${NAMECOIND_NICE:-${NICELEVEL:-0}}
 NAMECOIND_OPTS="${NAMECOIND_OPTS:-${NAMECOIN_OPTS}}"
 
 name="Namecoin Core Daemon"
 description="Namecoin distributed name-value store P2P network daemon"
 
-command="/usr/bin/namecoind"
+command="/usr/bin/sideboostd"
 command_args="-pid=\"${NAMECOIND_PIDFILE}\" \
 		-conf=\"${NAMECOIND_CONFIGFILE}\" \
 		-datadir=\"${NAMECOIND_DATADIR}\" \
@@ -71,7 +71,7 @@ checkconfig()
 {
 	if ! grep -qs '^rpcpassword=' "${NAMECOIND_CONFIGFILE}" ; then
 		eerror ""
-		eerror "ERROR: You must set a secure rpcpassword to run namecoind."
+		eerror "ERROR: You must set a secure rpcpassword to run sideboostd."
 		eerror "The setting must appear in ${NAMECOIND_CONFIGFILE}"
 		eerror ""
 		eerror "This password is security critical to securing wallets "

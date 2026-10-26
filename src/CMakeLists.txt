@@ -166,20 +166,20 @@ if(ENABLE_WALLET)
   add_subdirectory(wallet)
 
   if(BUILD_WALLET_TOOL)
-    add_executable(namecoin-wallet
+    add_executable(sideboost-wallet
       bitcoin-wallet.cpp
       bitcoin-wallet-res.rc
       init/bitcoin-wallet.cpp
       wallet/wallettool.cpp
     )
-    add_windows_application_manifest(namecoin-wallet)
-    target_link_libraries(namecoin-wallet
+    add_windows_application_manifest(sideboost-wallet)
+    target_link_libraries(sideboost-wallet
       core_interface
       bitcoin_wallet
       bitcoin_common
       bitcoin_util
     )
-    install_binary_component(namecoin-wallet HAS_MANPAGE)
+    install_binary_component(sideboost-wallet HAS_MANPAGE)
   endif()
 endif()
 
@@ -316,42 +316,42 @@ endif()
 
 # Namecoin wrapper executable that can call other executables.
 if(BUILD_BITCOIN_BIN)
-  add_executable(namecoin
+  add_executable(sideboost
     bitcoin.cpp
     bitcoin-res.rc
   )
-  add_windows_application_manifest(namecoin)
-  target_link_libraries(namecoin core_interface bitcoin_common bitcoin_util)
-  install_binary_component(namecoin HAS_MANPAGE)
+  add_windows_application_manifest(sideboost)
+  target_link_libraries(sideboost core_interface bitcoin_common bitcoin_util)
+  install_binary_component(sideboost HAS_MANPAGE)
 endif()
 
 # Bitcoin Core bitcoind.
 if(BUILD_DAEMON)
-  add_executable(namecoind
+  add_executable(sideboostd
     bitcoind.cpp
     bitcoind-res.rc
     init/bitcoind.cpp
   )
-  add_windows_application_manifest(namecoind)
-  target_link_libraries(namecoind
+  add_windows_application_manifest(sideboostd)
+  target_link_libraries(sideboostd
     core_interface
     bitcoin_node
     $<TARGET_NAME_IF_EXISTS:bitcoin_wallet>
   )
-  install_binary_component(namecoind HAS_MANPAGE)
+  install_binary_component(sideboostd HAS_MANPAGE)
 endif()
 if(ENABLE_IPC AND BUILD_DAEMON)
-  add_executable(namecoin-node
+  add_executable(sideboost-node
     bitcoind.cpp
     init/bitcoin-node.cpp
   )
-  target_link_libraries(namecoin-node
+  target_link_libraries(sideboost-node
     core_interface
     bitcoin_node
     bitcoin_ipc
     $<TARGET_NAME_IF_EXISTS:bitcoin_wallet>
   )
-  install_binary_component(namecoin-node INTERNAL)
+  install_binary_component(sideboost-node INTERNAL)
 endif()
 
 
@@ -368,52 +368,52 @@ target_link_libraries(bitcoin_cli
 
 # Bitcoin Core RPC client
 if(BUILD_CLI)
-  add_executable(namecoin-cli
+  add_executable(sideboost-cli
     bitcoin-cli.cpp
     bitcoin-cli-res.rc
     init/basic.cpp
   )
-  add_windows_application_manifest(namecoin-cli)
-  target_link_libraries(namecoin-cli
+  add_windows_application_manifest(sideboost-cli)
+  target_link_libraries(sideboost-cli
     core_interface
     bitcoin_cli
     bitcoin_common
     bitcoin_ipc
     bitcoin_util
   )
-  install_binary_component(namecoin-cli HAS_MANPAGE)
+  install_binary_component(sideboost-cli HAS_MANPAGE)
 endif()
 
 
 if(BUILD_TX)
-  add_executable(namecoin-tx
+  add_executable(sideboost-tx
     bitcoin-tx.cpp
     bitcoin-tx-res.rc
   )
-  add_windows_application_manifest(namecoin-tx)
-  target_link_libraries(namecoin-tx
+  add_windows_application_manifest(sideboost-tx)
+  target_link_libraries(sideboost-tx
     core_interface
     bitcoin_common
     bitcoin_util
     univalue
   )
-  install_binary_component(namecoin-tx HAS_MANPAGE)
+  install_binary_component(sideboost-tx HAS_MANPAGE)
 endif()
 
 
 if(BUILD_UTIL)
-  add_executable(namecoin-util
+  add_executable(sideboost-util
     bitcoin-util.cpp
     bitcoin-util-res.rc
   )
-  add_windows_application_manifest(namecoin-util)
-  target_link_libraries(namecoin-util
+  add_windows_application_manifest(sideboost-util)
+  target_link_libraries(sideboost-util
     core_interface
     bitcoin_common
     bitcoin_util
     univalue
   )
-  install_binary_component(namecoin-util HAS_MANPAGE)
+  install_binary_component(sideboost-util HAS_MANPAGE)
 endif()
 
 
@@ -428,16 +428,16 @@ if(BUILD_KERNEL_LIB)
     add_subdirectory(test/kernel)
   endif()
   if(BUILD_UTIL_CHAINSTATE)
-    add_executable(namecoin-chainstate
+    add_executable(sideboost-chainstate
       bitcoin-chainstate.cpp
     )
-    add_windows_application_manifest(namecoin-chainstate)
+    add_windows_application_manifest(sideboost-chainstate)
     target_link_libraries(bitcoin-chainstate
       PRIVATE
         core_interface
-        namecoinkernel
+        sideboostkernel
     )
-    install_binary_component(namecoin-chainstate INTERNAL)
+    install_binary_component(sideboost-chainstate INTERNAL)
   endif()
 endif()
 

@@ -154,7 +154,7 @@ static void SetupCliArgs(ArgsManager& argsman)
     argsman.AddArg("-generate",
                    strprintf("Generate blocks, equivalent to RPC getnewaddress followed by RPC generatetoaddress. Optional positional integer "
                              "arguments are number of blocks to generate (default: %s) and maximum iterations to try (default: %s), equivalent to "
-                             "RPC generatetoaddress nblocks and maxtries arguments. Example: namecoin-cli -generate 4 1000",
+                             "RPC generatetoaddress nblocks and maxtries arguments. Example: sideboost-cli -generate 4 1000",
                              DEFAULT_NBLOCKS, DEFAULT_MAX_TRIES),
                    ArgsManager::ALLOW_ANY, OptionsCategory::CLI_COMMANDS);
     argsman.AddArg("-addrinfo", "Get the number of addresses known to the node, per network and total.", ArgsManager::ALLOW_ANY, OptionsCategory::CLI_COMMANDS);
@@ -173,7 +173,7 @@ static void SetupCliArgs(ArgsManager& argsman)
     argsman.AddArg("-rpcuser=<user>", "Username for JSON-RPC connections", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-rpcwait", "Wait for RPC server to start", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-rpcwaittimeout=<n>", strprintf("Timeout in seconds to wait for the RPC server to start, or 0 for no timeout. (default: %d)", DEFAULT_WAIT_CLIENT_TIMEOUT), ArgsManager::ALLOW_ANY | ArgsManager::DISALLOW_NEGATION, OptionsCategory::OPTIONS);
-    argsman.AddArg("-rpcwallet=<walletname>", "Send RPC for non-default wallet on RPC server (needs to exactly match corresponding -wallet option passed to namecoind). This changes the RPC endpoint used, e.g. http://127.0.0.1:8332/wallet/<walletname>", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
+    argsman.AddArg("-rpcwallet=<walletname>", "Send RPC for non-default wallet on RPC server (needs to exactly match corresponding -wallet option passed to sideboostd). This changes the RPC endpoint used, e.g. http://127.0.0.1:8332/wallet/<walletname>", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-stdin", "Read extra arguments from standard input, one per line until EOF/Ctrl-D (recommended for sensitive information such as passphrases). When combined with -stdinrpcpass, the first line from standard input is used for the RPC password.", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-stdinrpcpass", "Read RPC password from standard input as a single line. When combined with -stdin, the first line from standard input is used for the RPC password. When combined with -stdinwalletpassphrase, -stdinrpcpass consumes the first line, and -stdinwalletpassphrase consumes the second.", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-stdinwalletpassphrase", "Read wallet passphrase from standard input as a single line. When combined with -stdin, the first line from standard input is used for the wallet passphrase.", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
@@ -216,15 +216,15 @@ static int AppInitRPC(int argc, char* argv[])
             strUsage += FormatParagraph(LicenseInfo());
         } else {
             strUsage += "\n"
-                "The namecoin-cli utility provides a command line interface to interact with a " CLIENT_NAME " RPC server.\n"
+                "The sideboost-cli utility provides a command line interface to interact with a " CLIENT_NAME " RPC server.\n"
                 "\nIt can be used to query network information, manage wallets, create or broadcast transactions, and control the " CLIENT_NAME " server.\n"
                 "\nUse the \"help\" command to list all commands. Use \"help <command>\" to show help for that command.\n"
                 "The -named option allows you to specify parameters using the key=value format, eliminating the need to pass unused positional parameters.\n"
                 "\n"
-                "Usage: namecoin-cli [options] <command> [params]\n"
-                "or:    namecoin-cli [options] -named <command> [name=value]...\n"
-                "or:    namecoin-cli [options] help\n"
-                "or:    namecoin-cli [options] help <command>\n"
+                "Usage: sideboost-cli [options] <command> [params]\n"
+                "or:    sideboost-cli [options] -named <command> [name=value]...\n"
+                "or:    sideboost-cli [options] help\n"
+                "or:    sideboost-cli [options] help <command>\n"
                 "\n";
             strUsage += "\n" + gArgs.GetHelpMessage();
         }
@@ -291,7 +291,7 @@ struct AddrinfoRequestHandler : BaseRequestHandler {
     {
         if (!reply["error"].isNull()) {
             if (reply["error"]["code"].getInt<int>() == RPC_METHOD_NOT_FOUND) {
-                throw std::runtime_error("-addrinfo requires namecoind v26.0 or later which supports getaddrmaninfo RPC. Please upgrade your node or use namecoin-cli from the same version.");
+                throw std::runtime_error("-addrinfo requires sideboostd v26.0 or later which supports getaddrmaninfo RPC. Please upgrade your node or use sideboost-cli from the same version.");
             }
             return reply;
         }
@@ -491,15 +491,15 @@ public:
                 n = *res;
                 m_details_level = std::min(n, NETINFO_MAX_LEVEL);
             } else {
-                throw std::runtime_error(strprintf("invalid -netinfo level argument: %s\nFor more information, run: namecoin-cli -netinfo help", args.at(0)));
+                throw std::runtime_error(strprintf("invalid -netinfo level argument: %s\nFor more information, run: sideboost-cli -netinfo help", args.at(0)));
             }
             if (args.size() > 1) {
                 if (std::string_view s{args.at(1)}; n && (s == "o" || s == "outonly")) {
                     m_outbound_only_selected = true;
                 } else if (n) {
-                    throw std::runtime_error(strprintf("invalid -netinfo outonly argument: %s\nFor more information, run: namecoin-cli -netinfo help", s));
+                    throw std::runtime_error(strprintf("invalid -netinfo outonly argument: %s\nFor more information, run: sideboost-cli -netinfo help", s));
                 } else {
-                    throw std::runtime_error(strprintf("invalid -netinfo outonly argument: %s\nThe outonly argument is only valid for a level greater than 0 (the first argument). For more information, run: namecoin-cli -netinfo help", s));
+                    throw std::runtime_error(strprintf("invalid -netinfo outonly argument: %s\nThe outonly argument is only valid for a level greater than 0 (the first argument). For more information, run: sideboost-cli -netinfo help", s));
                 }
             }
         }
@@ -517,7 +517,7 @@ public:
 
         const UniValue& networkinfo{batch[ID_NETWORKINFO]["result"]};
         if (networkinfo["version"].getInt<int>() < 209900) {
-            throw std::runtime_error("-netinfo requires namecoind server to be running v0.21.0 and up");
+            throw std::runtime_error("-netinfo requires sideboostd server to be running v0.21.0 and up");
         }
         const int64_t time_now{TicksSinceEpoch<std::chrono::seconds>(CliClock::now())};
 
@@ -742,17 +742,17 @@ public:
         "* The local addresses table lists each local address broadcast by the node, the port, and the score.\n\n"
         "Examples:\n\n"
         "Peer counts table of reachable networks and list of local addresses\n"
-        "> namecoin-cli -netinfo\n\n"
+        "> sideboost-cli -netinfo\n\n"
         "The same, preceded by a peers listing without address and version columns\n"
-        "> namecoin-cli -netinfo 1\n\n"
+        "> sideboost-cli -netinfo 1\n\n"
         "Full dashboard\n"
-        + strprintf("> namecoin-cli -netinfo %d\n\n", NETINFO_MAX_LEVEL) +
+        + strprintf("> sideboost-cli -netinfo %d\n\n", NETINFO_MAX_LEVEL) +
         "Full dashboard, but with outbound peers only\n"
-        + strprintf("> namecoin-cli -netinfo %d outonly\n\n", NETINFO_MAX_LEVEL) +
+        + strprintf("> sideboost-cli -netinfo %d outonly\n\n", NETINFO_MAX_LEVEL) +
         "Full live dashboard, adjust --interval or --no-title as needed (Linux)\n"
-        + strprintf("> watch --interval 1 --no-title namecoin-cli -netinfo %d\n\n", NETINFO_MAX_LEVEL) +
+        + strprintf("> watch --interval 1 --no-title sideboost-cli -netinfo %d\n\n", NETINFO_MAX_LEVEL) +
         "See this help\n"
-        "> namecoin-cli -netinfo help\n"};
+        "> sideboost-cli -netinfo help\n"};
 };
 
 /** Process RPC generatetoaddress request. */
@@ -1229,8 +1229,8 @@ static UniValue CallRPC(BaseRequestHandler* rh, const std::string& strMethod, co
     } catch (const CConnectionFailed& e) {
         const std::string formatted_error{*e.what() ? strprintf(" (%s)", e.what()) : ""};
         throw CConnectionFailed(strprintf("Error while attempting to communicate with server %s:%d%s\n\n"
-                    "Make sure the namecoind server is running and that you are connecting to the correct RPC port.\n"
-                    "Use \"namecoin-cli -help\" for more info.",
+                    "Make sure the sideboostd server is running and that you are connecting to the correct RPC port.\n"
+                    "Use \"sideboost-cli -help\" for more info.",
                     host, port, formatted_error));
     }
 
@@ -1343,7 +1343,7 @@ static void ParseError(const UniValue& error, std::string& strPrint, int& nRet)
         }
         if (err_code.isNum() && err_code.getInt<int>() == RPC_WALLET_NOT_SPECIFIED) {
             strPrint += " Or for the CLI, specify the \"-rpcwallet=<walletname>\" option before the command";
-            strPrint += " (run \"namecoin-cli -h\" for help or \"namecoin-cli listwallets\" to see which wallets are currently loaded).";
+            strPrint += " (run \"sideboost-cli -h\" for help or \"sideboost-cli listwallets\" to see which wallets are currently loaded).";
         }
     } else {
         strPrint = "error: " + error.write();

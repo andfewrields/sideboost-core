@@ -35,7 +35,7 @@ WALLET_NOT_LOADED = 'Requested wallet does not exist or is not loaded'
 WALLET_NOT_SPECIFIED = (
     "Multiple wallets are loaded. Please select which wallet to use by requesting the RPC "
     "through the /wallet/<walletname> URI path. Or for the CLI, specify the \"-rpcwallet=<walletname>\" "
-    "option before the command (run \"namecoin-cli -h\" for help or \"namecoin-cli listwallets\" to see "
+    "option before the command (run \"sideboost-cli -h\" for help or \"sideboost-cli listwallets\" to see "
     "which wallets are currently loaded)."
 )
 

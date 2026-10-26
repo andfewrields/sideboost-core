@@ -2,7 +2,7 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or https://opensource.org/license/mit/.
 
-add_executable(bench_namecoin
+add_executable(bench_sideboost
   bench_bitcoin.cpp
   bench.cpp
   nanobench.cpp
@@ -60,11 +60,11 @@ add_executable(bench_namecoin
 add_windows_application_manifest(bench_bitcoin)
 
 include(TargetDataSources)
-target_raw_data_sources(bench_namecoin NAMESPACE benchmark::data
+target_raw_data_sources(bench_sideboost NAMESPACE benchmark::data
   data/block413567.raw
 )
 
-target_link_libraries(bench_namecoin
+target_link_libraries(bench_sideboost
   core_interface
   test_util
   bitcoin_node
@@ -76,7 +76,7 @@ if(WITH_EMBEDDED_ASMAP)
 endif()
 
 if(ENABLE_WALLET)
-  target_sources(bench_namecoin
+  target_sources(bench_sideboost
     PRIVATE
       coin_selection.cpp
       wallet_balance.cpp
@@ -87,7 +87,7 @@ if(ENABLE_WALLET)
       wallet_ismine.cpp
       wallet_migration.cpp
   )
-  target_link_libraries(bench_namecoin bitcoin_wallet)
+  target_link_libraries(bench_sideboost bitcoin_wallet)
 endif()
 
-install_binary_component(bench_namecoin INTERNAL)
+install_binary_component(bench_sideboost INTERNAL)

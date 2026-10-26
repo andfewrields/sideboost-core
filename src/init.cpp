@@ -190,7 +190,7 @@ static constexpr int MIN_CORE_FDS = MIN_LEVELDB_FDS + NUM_FDS_MESSAGE_CAPTURE;
 /**
  * The PID file facilities.
  */
-static const char* BITCOIN_PID_FILENAME = "namecoind.pid";
+static const char* BITCOIN_PID_FILENAME = "sideboostd.pid";
 /**
  * True if this process has created a PID file.
  * Used to determine whether we should remove the PID file on shutdown.

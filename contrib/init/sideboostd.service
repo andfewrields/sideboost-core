@@ -1,7 +1,7 @@
 # It is not recommended to modify this file in-place, because it will
 # be overwritten during package upgrades. If you want to add further
 # options or overwrite existing ones then use
-# $ systemctl edit namecoind.service
+# $ systemctl edit sideboostd.service
 # See "man systemd.service" for details.
 
 # Note that almost all daemon options could be specified in
@@ -18,9 +18,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/namecoind -pid=/run/namecoind/namecoind.pid \
+ExecStart=/usr/bin/sideboostd -pid=/run/sideboostd/sideboostd.pid \
                              -conf=/etc/namecoin/namecoin.conf \
-                             -datadir=/var/lib/namecoind \
+                             -datadir=/var/lib/sideboostd \
                              -startupnotify='systemd-notify --ready' \
                              -shutdownnotify='systemd-notify --stopping'
 
@@ -32,7 +32,7 @@ ExecStartPre=!/bin/chgrp namecoin /etc/namecoin
 
 Type=notify
 NotifyAccess=all
-PIDFile=/run/namecoind/namecoind.pid
+PIDFile=/run/sideboostd/sideboostd.pid
 
 Restart=on-failure
 TimeoutStartSec=infinity
@@ -44,16 +44,16 @@ TimeoutStopSec=600
 # Run as namecoin:namecoin
 User=namecoin
 
-# /run/namecoind
-RuntimeDirectory=namecoind
+# /run/sideboostd
+RuntimeDirectory=sideboostd
 RuntimeDirectoryMode=0710
 
 # /etc/namecoin
 ConfigurationDirectory=namecoin
 ConfigurationDirectoryMode=0710
 
-# /var/lib/namecoind
-StateDirectory=namecoind
+# /var/lib/sideboostd
+StateDirectory=sideboostd
 StateDirectoryMode=0710
 
 # Hardening measures

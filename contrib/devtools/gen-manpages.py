@@ -11,12 +11,12 @@ import argparse
 
 BINARIES = [
 #'bin/namecoin',
-'bin/namecoind',
-'bin/namecoin-cli',
-'bin/namecoin-tx',
-'bin/namecoin-wallet',
-'bin/namecoin-util',
-'bin/namecoin-qt',
+'bin/sideboostd',
+'bin/sideboost-cli',
+'bin/sideboost-tx',
+'bin/sideboost-wallet',
+'bin/sideboost-util',
+'bin/sideboost-qt',
 ]
 
 parser = argparse.ArgumentParser(

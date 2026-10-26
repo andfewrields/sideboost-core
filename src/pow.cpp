@@ -21,7 +21,7 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     {
         if (params.AllowMinDifficultyBlocks(pblock->GetBlockTime()))
         {
-            /* khal's port of this code from Bitcoin to the old namecoind
+            /* khal's port of this code from Bitcoin to the old sideboostd
                has a bug:  Comparison of block times is done by an unsigned
                difference.  Consequently, the minimum difficulty is also
                applied if the block's timestamp is earlier than the preceding

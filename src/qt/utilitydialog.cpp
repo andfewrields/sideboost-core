@@ -57,11 +57,11 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, bool about) :
         ui->helpMessage->setVisible(false);
     } else {
         setWindowTitle(tr("Command-line options"));
-        QString header = "The namecoin-qt application provides a graphical interface for interacting with " CLIENT_NAME ".\n\n"
-                         "It combines the core functionalities of namecoind with a user-friendly interface for wallet management, transaction history, and network statistics.\n\n"
+        QString header = "The sideboost-qt application provides a graphical interface for interacting with " CLIENT_NAME ".\n\n"
+                         "It combines the core functionalities of sideboostd with a user-friendly interface for wallet management, transaction history, and network statistics.\n\n"
                          "It is suitable for users who prefer a graphical over a command-line interface.\n\n"
                          "You can optionally specify a payment [URI], in e.g. the BIP21 URI format.\n\n"
-                         "Usage: namecoin-qt [options] [URI]\n\n";
+                         "Usage: sideboost-qt [options] [URI]\n\n";
         QTextCursor cursor(ui->helpMessage->document());
         cursor.insertText(version);
         cursor.insertBlock();

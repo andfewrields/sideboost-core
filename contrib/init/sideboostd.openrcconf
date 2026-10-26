@@ -1,31 +1,31 @@
-# /etc/conf.d/namecoind: config file for /etc/init.d/namecoind
+# /etc/conf.d/sideboostd: config file for /etc/init.d/sideboostd
 
 # Config file location
 #BITCOIND_CONFIGFILE="/etc/namecoin/namecoin.conf"
 
 # What directory to write pidfile to?  (created and owned by $BITCOIND_USER)
-#BITCOIND_PIDDIR="/var/run/namecoind"
+#BITCOIND_PIDDIR="/var/run/sideboostd"
 
 # What filename to give the pidfile
-#BITCOIND_PIDFILE="${BITCOIND_PIDDIR}/namecoind.pid"
+#BITCOIND_PIDFILE="${BITCOIND_PIDDIR}/sideboostd.pid"
 
-# Where to write namecoind data (be mindful that the blockchain is large)
-#BITCOIND_DATADIR="/var/lib/namecoind"
+# Where to write sideboostd data (be mindful that the blockchain is large)
+#BITCOIND_DATADIR="/var/lib/sideboostd"
 
-# User and group to own namecoind process
+# User and group to own sideboostd process
 #BITCOIND_USER="namecoin"
 #BITCOIND_GROUP="namecoin"
 
-# Path to namecoind executable
-#BITCOIND_BIN="/usr/bin/namecoind"
+# Path to sideboostd executable
+#BITCOIND_BIN="/usr/bin/sideboostd"
 
-# Nice value to run namecoind under
+# Nice value to run sideboostd under
 #BITCOIND_NICE=0
 
 # Additional options (avoid -conf and -datadir, use flags above)
 #BITCOIND_OPTS=""
 
-# The timeout in seconds OpenRC will wait for namecoind to terminate
+# The timeout in seconds OpenRC will wait for sideboostd to terminate
 # after a SIGTERM has been raised.
 # Note that this will be mapped as argument to start-stop-daemon's
 # '--retry' option, which means you can specify a retry schedule

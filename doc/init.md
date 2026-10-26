@@ -1,36 +1,36 @@
-Sample init scripts and service configuration for namecoind
+Sample init scripts and service configuration for sideboostd
 ===========================================================
 
 Sample scripts and configuration files for systemd, Upstart and OpenRC
 can be found in the contrib/init folder.
 
-    contrib/init/namecoind.service:    systemd service unit configuration
-    contrib/init/namecoind.openrc:     OpenRC compatible SysV style init script
-    contrib/init/namecoind.openrcconf: OpenRC conf.d file
-    contrib/init/namecoind.conf:       Upstart service configuration file
-    contrib/init/namecoind.init:       CentOS compatible SysV style init script
+    contrib/init/sideboostd.service:    systemd service unit configuration
+    contrib/init/sideboostd.openrc:     OpenRC compatible SysV style init script
+    contrib/init/sideboostd.openrcconf: OpenRC conf.d file
+    contrib/init/sideboostd.conf:       Upstart service configuration file
+    contrib/init/sideboostd.init:       CentOS compatible SysV style init script
 
 Service User
 ---------------------------------
 
 All three Linux startup configurations assume the existence of a "namecoin" user
 and group.  They must be created before attempting to use these scripts.
-The macOS configuration assumes namecoind will be set up for the current user.
+The macOS configuration assumes sideboostd will be set up for the current user.
 
 Configuration
 ---------------------------------
 
-Running namecoind as a daemon does not require any manual configuration. You may
+Running sideboostd as a daemon does not require any manual configuration. You may
 set the `rpcauth` setting in the `namecoin.conf` configuration file to override
 the default behaviour of using a special cookie for authentication.
 
 This password does not have to be remembered or typed as it is mostly used
-as a fixed token that namecoind and client programs read from the configuration
+as a fixed token that sideboostd and client programs read from the configuration
 file, however it is recommended that a strong and secure password be used
 as this password is security critical to securing the wallet should the
 wallet be enabled.
 
-If namecoind is run with the "-server" flag (set by default), and no rpcpassword is set,
+If sideboostd is run with the "-server" flag (set by default), and no rpcpassword is set,
 it will use a special cookie file for authentication. The cookie is generated with random
 content when the daemon starts, and deleted when it exits. Read access to this file
 controls who can access it through RPC.
@@ -40,7 +40,7 @@ overridden with the option `-rpccookiefile`. Default file permissions for the
 cookie are "owner" (i.e. user read/writeable) via default application-wide file
 umask of `0077`, but these can be overridden with the `-rpccookieperms` option.
 
-This allows for running namecoind without having to do any manual configuration.
+This allows for running sideboostd without having to do any manual configuration.
 
 `conf`, `pid`, and `wallet` accept relative paths which are interpreted as
 relative to the data directory. `wallet` *only* supports relative paths.
@@ -55,17 +55,17 @@ Paths
 
 All three configurations assume several paths that might need to be adjusted.
 
-    Binary:              /usr/bin/namecoind
+    Binary:              /usr/bin/sideboostd
     Configuration file:  /etc/namecoin/namecoin.conf
-    Data directory:      /var/lib/namecoind
-    PID file:            /var/run/namecoind/namecoind.pid (OpenRC and Upstart) or
-                         /run/namecoind/namecoind.pid (systemd)
-    Lock file:           /var/lock/subsys/namecoind (CentOS)
+    Data directory:      /var/lib/sideboostd
+    PID file:            /var/run/sideboostd/sideboostd.pid (OpenRC and Upstart) or
+                         /run/sideboostd/sideboostd.pid (systemd)
+    Lock file:           /var/lock/subsys/sideboostd (CentOS)
 
 The PID directory (if applicable) and data directory should both be owned by the
 namecoin user and group. It is advised for security reasons to make the
 configuration file and data directory only readable by the namecoin user and
-group. Access to namecoin-cli and other namecoind rpc clients can then be
+group. Access to sideboost-cli and other sideboostd rpc clients can then be
 controlled by group membership.
 
 NOTE: When using the systemd .service file, the creation of the aforementioned
@@ -86,7 +86,7 @@ OpenRC).
 
 ### macOS
 
-    Binary:              /usr/local/bin/namecoind
+    Binary:              /usr/local/bin/sideboostd
     Configuration file:  ~/Library/Application Support/Namecoin/bitcoin.conf
     Data directory:      ~/Library/Application Support/Namecoin
     Lock file:           ~/Library/Application Support/Namecoin/.lock
@@ -100,23 +100,23 @@ Installing this .service file consists of just copying it to
 /usr/lib/systemd/system directory, followed by the command
 `systemctl daemon-reload` in order to update running systemd configuration.
 
-To test, run `systemctl start namecoind` and to enable for system startup run
-`systemctl enable namecoind`
+To test, run `systemctl start sideboostd` and to enable for system startup run
+`systemctl enable sideboostd`
 
 NOTE: When installing for systemd in Debian/Ubuntu the .service file needs to be copied to the /lib/systemd/system directory instead.
 
 ### OpenRC
 
-Rename namecoind.openrc to namecoind and drop it in /etc/init.d.  Double
+Rename sideboostd.openrc to sideboostd and drop it in /etc/init.d.  Double
 check ownership and permissions and make it executable.  Test it with
-`/etc/init.d/namecoind start` and configure it to run on startup with
-`rc-update add namecoind`
+`/etc/init.d/sideboostd start` and configure it to run on startup with
+`rc-update add sideboostd`
 
 ### Upstart (for Debian/Ubuntu based distributions)
 
 Upstart is the default init system for Debian/Ubuntu versions older than 15.04. If you are using version 15.04 or newer and haven't manually configured upstart you should follow the systemd instructions instead.
 
-Drop namecoind.conf in /etc/init.  Test by running `service namecoind start`
+Drop sideboostd.conf in /etc/init.  Test by running `service sideboostd start`
 it will automatically start on reboot.
 
 NOTE: This script is incompatible with CentOS 5 and Amazon Linux 2014 as they
@@ -124,21 +124,21 @@ use old versions of Upstart and do not supply the start-stop-daemon utility.
 
 ### CentOS
 
-Copy namecoind.init to /etc/init.d/namecoind. Test by running `service namecoind start`.
+Copy sideboostd.init to /etc/init.d/sideboostd. Test by running `service sideboostd start`.
 
-Using this script, you can adjust the path and flags to the namecoind program by
+Using this script, you can adjust the path and flags to the sideboostd program by
 setting the BITCOIND and FLAGS environment variables in the file
-/etc/sysconfig/namecoind. You can also use the DAEMONOPTS environment variable here.
+/etc/sysconfig/sideboostd. You can also use the DAEMONOPTS environment variable here.
 
 ### macOS
 
-Copy org.namecoin.namecoind.plist into ~/Library/LaunchAgents. Load the launch agent by
-running `launchctl load ~/Library/LaunchAgents/org.namecoin.namecoind.plist`.
+Copy org.sideboost.sideboostd.plist into ~/Library/LaunchAgents. Load the launch agent by
+running `launchctl load ~/Library/LaunchAgents/org.sideboost.sideboostd.plist`.
 
-This Launch Agent will cause namecoind to start whenever the user logs in.
+This Launch Agent will cause sideboostd to start whenever the user logs in.
 
-NOTE: This approach is intended for those wanting to run namecoind as the current user.
-You will need to modify org.namecoin.namecoind.plist if you intend to use it as a
+NOTE: This approach is intended for those wanting to run sideboostd as the current user.
+You will need to modify org.sideboost.sideboostd.plist if you intend to use it as a
 Launch Daemon with a dedicated namecoin user.
 
 Auto-respawn

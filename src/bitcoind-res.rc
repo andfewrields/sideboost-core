@@ -15,13 +15,13 @@ BEGIN
         BLOCK "040904E4" // U.S. English - multilingual (hex)
         BEGIN
             VALUE "CompanyName",        CLIENT_NAME " project"
-            VALUE "FileDescription",    "namecoind (Namecoin node with a JSON-RPC server)"
+            VALUE "FileDescription",    "sideboostd (Namecoin node with a JSON-RPC server)"
             VALUE "FileVersion",        CLIENT_VERSION_STRING
-            VALUE "InternalName",       "namecoind"
+            VALUE "InternalName",       "sideboostd"
             VALUE "LegalCopyright",     COPYRIGHT_STR
             VALUE "LegalTrademarks1",   "Distributed under the MIT software license, see the accompanying file COPYING or http://www.opensource.org/licenses/mit-license.php."
-            VALUE "OriginalFilename",   "namecoind.exe"
-            VALUE "ProductName",        "namecoind"
+            VALUE "OriginalFilename",   "sideboostd.exe"
+            VALUE "ProductName",        "sideboostd"
             VALUE "ProductVersion",     CLIENT_VERSION_STRING
         END
     END

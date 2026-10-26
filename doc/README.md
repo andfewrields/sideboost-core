@@ -15,15 +15,15 @@ The following are some helpful notes on how to run Namecoin Core on your native 
 
 Unpack the files into a directory and run:
 
-- `bin/namecoin-qt` (GUI) or
-- `bin/namecoind` (headless)
+- `bin/sideboost-qt` (GUI) or
+- `bin/sideboostd` (headless)
 - `bin/namecoin` (wrapper command)
 
 The `namecoin` command supports subcommands like `namecoin gui`, `namecoin node`, and `namecoin rpc` exposing different functionality. Subcommands can be listed with `namecoin help`.
 
 ### Windows
 
-Unpack the files into a directory, and then run namecoin-qt.exe.
+Unpack the files into a directory, and then run sideboost-qt.exe.
 
 ### macOS
 

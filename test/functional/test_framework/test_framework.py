@@ -191,7 +191,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         parser.add_argument("--pdbonfailure", dest="pdbonfailure", default=False, action="store_true",
                             help="Attach a python debugger if test fails")
         parser.add_argument("--usecli", dest="usecli", default=False, action="store_true",
-                            help="use namecoin-cli instead of RPC for all commands")
+                            help="use sideboost-cli instead of RPC for all commands")
         parser.add_argument("--valgrind", dest="valgrind", default=False, action="store_true",
                             help="Run binaries under the valgrind memory error detector: Expect at least a ~10x slowdown. Does not apply to previous release binaries.")
         parser.add_argument("--randomseed", type=int,

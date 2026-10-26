@@ -2,7 +2,7 @@
 
 **Updated for MacOS [26](https://www.apple.com/os/macos/)**
 
-This guide describes how to build namecoind, command-line utilities, and GUI on macOS.
+This guide describes how to build sideboostd, command-line utilities, and GUI on macOS.
 
 ## Preparation
 
@@ -189,14 +189,14 @@ cmake --build build --target deploy
 
 ## Running Namecoin Core
 
-Namecoin Core should now be available at `./build/bin/namecoind`.
-If you compiled support for the GUI, it should be available at `./build/bin/namecoin-qt`.
+Namecoin Core should now be available at `./build/bin/sideboostd`.
+If you compiled support for the GUI, it should be available at `./build/bin/sideboost-qt`.
 
 There is also a multifunction command line interface at `./build/bin/namecoin`
 supporting subcommands like `namecoin node`, `bitcoin gui`, `bitcoin rpc`, and
 others that can be listed with `namecoin help`.
 
-The first time you run `namecoind` or `bitcoin-qt`, it will start downloading the blockchain.
+The first time you run `sideboostd` or `bitcoin-qt`, it will start downloading the blockchain.
 This process could take many hours, or even days on slower than average systems.
 
 By default, blockchain and wallet data files will be stored in:
@@ -215,7 +215,7 @@ touch "/Users/${USER}/Library/Application Support/Namecoin/namecoin.conf"
 chmod 600 "/Users/${USER}/Library/Application Support/Namecoin/namecoin.conf"
 ```
 
-The first time you run namecoind, it will start downloading the blockchain. This process could
+The first time you run sideboostd, it will start downloading the blockchain. This process could
 take several hours.
 
 You can monitor the download process by looking at the debug.log file:
@@ -227,8 +227,8 @@ tail -f $HOME/Library/Application\ Support/Namecoin/debug.log
 ## Other commands:
 
 ```shell
-./build/bin/namecoind -daemon      # Starts the namecoin daemon.
-./build/bin/namecoin-cli --help    # Outputs a list of command-line options.
-./build/bin/namecoin-cli help      # Outputs a list of RPC commands when the daemon is running.
-./build/bin/namecoin-qt -server # Starts the namecoin-qt server mode, allows namecoin-cli control
+./build/bin/sideboostd -daemon      # Starts the namecoin daemon.
+./build/bin/sideboost-cli --help    # Outputs a list of command-line options.
+./build/bin/sideboost-cli help      # Outputs a list of RPC commands when the daemon is running.
+./build/bin/sideboost-qt -server # Starts the sideboost-qt server mode, allows sideboost-cli control
 ```

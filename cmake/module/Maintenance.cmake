@@ -23,7 +23,7 @@ function(add_maintenance_targets)
     return()
   endif()
 
-  foreach(target IN ITEMS namecoin namecoind namecoin-node namecoin-qt namecoin-gui namecoin-cli namecoin-tx namecoin-util namecoin-wallet test_namecoin bench_namecoin)
+  foreach(target IN ITEMS sideboost sideboostd sideboost-node sideboost-qt sideboost-gui sideboost-cli sideboost-tx sideboost-util sideboost-wallet test_sideboost bench_sideboost)
     if(TARGET ${target})
       list(APPEND executables $<TARGET_FILE:${target}>)
     endif()
@@ -44,19 +44,19 @@ endfunction()
 
 function(add_windows_deploy_target)
   configure_file(${PROJECT_SOURCE_DIR}/cmake/script/GenerateWindowsInstaller.cmake.in ${PROJECT_BINARY_DIR}/GenerateWindowsInstaller.cmake USE_SOURCE_PERMISSIONS @ONLY)
-  if(MINGW AND TARGET namecoin AND TARGET namecoin-qt AND TARGET namecoind AND TARGET namecoin-cli AND TARGET namecoin-tx AND TARGET namecoin-wallet AND TARGET namecoin-util AND TARGET test_namecoin)
+  if(MINGW AND TARGET sideboost AND TARGET sideboost-qt AND TARGET sideboostd AND TARGET sideboost-cli AND TARGET sideboost-tx AND TARGET sideboost-wallet AND TARGET sideboost-util AND TARGET test_sideboost)
     add_custom_command(
-      OUTPUT ${PROJECT_BINARY_DIR}/namecoin-win64-setup.exe
+      OUTPUT ${PROJECT_BINARY_DIR}/sideboost-win64-setup.exe
       WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
       COMMAND ${CMAKE_COMMAND} -E make_directory release
-      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:namecoin> -o release/$<TARGET_FILE_NAME:namecoin>
-      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:namecoin-qt> -o release/$<TARGET_FILE_NAME:namecoin-qt>
-      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:namecoind> -o release/$<TARGET_FILE_NAME:namecoind>
-      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:namecoin-cli> -o release/$<TARGET_FILE_NAME:namecoin-cli>
-      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:namecoin-tx> -o release/$<TARGET_FILE_NAME:namecoin-tx>
-      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:namecoin-wallet> -o release/$<TARGET_FILE_NAME:namecoin-wallet>
-      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:namecoin-util> -o release/$<TARGET_FILE_NAME:namecoin-util>
-      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:test_namecoin> -o release/$<TARGET_FILE_NAME:test_namecoin>
+      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:sideboost> -o release/$<TARGET_FILE_NAME:sideboost>
+      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:sideboost-qt> -o release/$<TARGET_FILE_NAME:sideboost-qt>
+      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:sideboostd> -o release/$<TARGET_FILE_NAME:sideboostd>
+      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:sideboost-cli> -o release/$<TARGET_FILE_NAME:sideboost-cli>
+      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:sideboost-tx> -o release/$<TARGET_FILE_NAME:sideboost-tx>
+      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:sideboost-wallet> -o release/$<TARGET_FILE_NAME:sideboost-wallet>
+      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:sideboost-util> -o release/$<TARGET_FILE_NAME:sideboost-util>
+      COMMAND ${CMAKE_STRIP} $<TARGET_FILE:test_sideboost> -o release/$<TARGET_FILE_NAME:test_sideboost>
       COMMAND ${CMAKE_COMMAND} -D BIN_DIR=release -D LIBEXEC_DIR=release -P GenerateWindowsInstaller.cmake
     )
     add_custom_target(deploy DEPENDS ${PROJECT_BINARY_DIR}/bitcoin-win64-setup.exe)
@@ -64,7 +64,7 @@ function(add_windows_deploy_target)
 endfunction()
 
 function(add_macos_deploy_target)
-  if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND TARGET namecoin-qt)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND TARGET sideboost-qt)
     set(macos_app "Namecoin-Qt.app")
     # Populate Contents subdirectory.
     configure_file(${PROJECT_SOURCE_DIR}/share/qt/Info.plist.in ${macos_app}/Contents/Info.plist NO_SOURCE_PERMISSIONS)
@@ -78,8 +78,8 @@ function(add_macos_deploy_target)
 
     add_custom_command(
       OUTPUT ${PROJECT_BINARY_DIR}/${macos_app}/Contents/MacOS/Namecoin-Qt
-      COMMAND ${CMAKE_COMMAND} --install ${PROJECT_BINARY_DIR} --config $<CONFIG> --component namecoin-qt --prefix ${macos_app}/Contents/MacOS --strip
-      COMMAND ${CMAKE_COMMAND} -E rename ${macos_app}/Contents/MacOS/bin/$<TARGET_FILE_NAME:namecoin-qt> ${macos_app}/Contents/MacOS/Namecoin-Qt
+      COMMAND ${CMAKE_COMMAND} --install ${PROJECT_BINARY_DIR} --config $<CONFIG> --component sideboost-qt --prefix ${macos_app}/Contents/MacOS --strip
+      COMMAND ${CMAKE_COMMAND} -E rename ${macos_app}/Contents/MacOS/bin/$<TARGET_FILE_NAME:sideboost-qt> ${macos_app}/Contents/MacOS/Namecoin-Qt
       COMMAND ${CMAKE_COMMAND} -E rm -rf ${macos_app}/Contents/MacOS/bin
       COMMAND ${CMAKE_COMMAND} -E rm -rf ${macos_app}/Contents/MacOS/share
       VERBATIM
@@ -127,7 +127,7 @@ function(add_macos_deploy_target)
         )
       endif()
     endif()
-    add_dependencies(deploydir namecoin-qt)
+    add_dependencies(deploydir sideboost-qt)
     add_dependencies(deploy deploydir)
   endif()
 endfunction()

@@ -4,7 +4,7 @@
 
 # Do not use generator expressions in test sources because the
 # SOURCES property is processed to gather test suite macros.
-add_executable(test_namecoin
+add_executable(test_sideboost
   main.cpp
   addrman_tests.cpp
   allocator_tests.cpp
@@ -150,7 +150,7 @@ add_executable(test_namecoin
 )
 
 include(TargetDataSources)
-target_json_data_sources(test_namecoin
+target_json_data_sources(test_sideboost
   data/base58_encode_decode.json
   data/bip341_wallet_vectors.json
   data/blockfilters.json
@@ -162,13 +162,13 @@ target_json_data_sources(test_namecoin
   data/tx_invalid.json
   data/tx_valid.json
 )
-target_raw_data_sources(test_namecoin NAMESPACE test::data
+target_raw_data_sources(test_sideboost NAMESPACE test::data
   data/asmap.raw
 )
 
-add_windows_application_manifest(test_namecoin)
+add_windows_application_manifest(test_sideboost)
 
-target_link_libraries(test_namecoin
+target_link_libraries(test_sideboost
   core_interface
   test_util
   bitcoin_cli
@@ -195,7 +195,7 @@ function(add_boost_test source_file)
   )
   foreach(test_suite_name IN LISTS test_suite_macro)
     add_test(NAME ${test_suite_name}
-      COMMAND test_namecoin --run_test=${test_suite_name} --catch_system_error=no --log_level=test_suite -- -printtoconsole=1
+      COMMAND test_sideboost --run_test=${test_suite_name} --catch_system_error=no --log_level=test_suite -- -printtoconsole=1
     )
     set_property(TEST ${test_suite_name} PROPERTY
       SKIP_REGULAR_EXPRESSION
@@ -206,8 +206,8 @@ function(add_boost_test source_file)
 endfunction()
 
 function(add_all_test_targets)
-  get_target_property(test_source_dir test_namecoin SOURCE_DIR)
-  get_target_property(test_sources test_namecoin SOURCES)
+  get_target_property(test_source_dir test_sideboost SOURCE_DIR)
+  get_target_property(test_sources test_sideboost SOURCES)
   foreach(test_source ${test_sources})
     cmake_path(IS_RELATIVE test_source result)
     if(result)
@@ -227,4 +227,4 @@ endif()
 
 add_all_test_targets()
 
-install_binary_component(test_namecoin INTERNAL)
+install_binary_component(test_sideboost INTERNAL)
