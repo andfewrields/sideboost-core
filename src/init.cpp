@@ -25,6 +25,7 @@
 #include <dbwrapper.h>
 #include <drivechain/enforcer.h>
 #include <drivechain/parentchain.h>
+#include <drivechain/withdrawal.h>
 #include <httprpc.h>
 #include <httpserver.h>
 #include <index/base.h>
@@ -1437,7 +1438,19 @@ static ChainstateLoadResult InitAndLoadChainstate(
             node.deposit_source = std::make_unique<drivechain::EnforcerClient>(host, port, drivechain::ENFORCER_TIMEOUT);
             node.parent_chain = std::make_unique<drivechain::ParentChainView>(
                 *node.deposit_source, *chainparams.GetConsensus().deposit_slot, chainparams.GetConsensus().nDepositMinDepth,
-                args.GetBoolArg("-bundlevotes", drivechain::DEFAULT_BUNDLE_VOTES), args.GetDataDirNet() / "parentchain.dat");
+                args.GetBoolArg("-bundlevotes", drivechain::DEFAULT_BUNDLE_VOTES), args.GetDataDirNet() / "parentchain.dat",
+                drivechain::ParentGenesisHash(chainparams.GetChainType()));
+            // An enforcer of another network can't be used (if it can't be
+            // reached now, nothing is credited until it is and checks out)
+            try {
+                if (!node.parent_chain->CheckNetwork()) {
+                    return {ChainstateLoadStatus::FAILURE_FATAL,
+                            strprintf(_("The enforcer at %s follows another parent chain network than this chain's (it lacks block %s)."),
+                                      args.GetArg("-enforcer", ""), drivechain::ParentGenesisHash(chainparams.GetChainType()).ToString())};
+                }
+            } catch (const drivechain::DepositSourceError& e) {
+                LogWarning("Can't check the enforcer's network yet: %s", e.what());
+            }
             node.parent_chain->Load();
         }
         chainman_opts.parent_chain = node.parent_chain.get();

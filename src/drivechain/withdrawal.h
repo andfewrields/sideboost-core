@@ -100,6 +100,12 @@ struct Withdrawal {
  *  from (Bitcoin's).  */
 AddressFormat ParentAddressFormat(ChainType chain);
 
+/** The genesis block of the parent chain network this chain takes deposits
+ *  from: Bitcoin's network of the same kind, which ECX's networks fork
+ *  (betanet forks mainnet).  An enforcer following another network lacks
+ *  it.  */
+uint256 ParentGenesisHash(ChainType chain);
+
 /** The output script requesting a withdrawal.  */
 CScript MakeWithdrawalScript(const CScript& payout_script, CAmount fee);
 

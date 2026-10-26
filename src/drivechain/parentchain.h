@@ -157,10 +157,18 @@ class ParentChainView
 {
 public:
     /** `manage_votes`: see VoteForBundle.  `file`: where Save keeps the view
-     *  for Load (none if empty).  */
-    ParentChainView(DepositSource& source, uint8_t slot, int min_depth, bool manage_votes = false, fs::path file = {});
+     *  for Load (none if empty).  `parent_genesis`: the genesis block of the
+     *  parent chain network to follow (see CheckNetwork).  */
+    ParentChainView(DepositSource& source, uint8_t slot, int min_depth, bool manage_votes = false, fs::path file = {},
+                    std::optional<uint256> parent_genesis = std::nullopt);
 
-    /** Catch up with the parent chain's best chain.  Throws
+    /** Whether the source follows the parent chain network the view is for:
+     *  whether it has its genesis block (true without one).  Throws
+     *  DepositSourceError if it can't tell.  */
+    bool CheckNetwork() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
+
+    /** Catch up with the parent chain's best chain, once the source is found
+     *  to follow the right network (CheckNetwork).  Throws
      *  DepositSourceError.  */
     void Update() EXCLUSIVE_LOCKS_REQUIRED(!m_mutex);
 
@@ -241,8 +249,11 @@ private:
     const int m_min_depth;
     const bool m_manage_votes;
     const fs::path m_file;
+    const std::optional<uint256> m_parent_genesis;
 
     mutable Mutex m_mutex;
+    /** Whether CheckNetwork found the source on the right network.  */
+    bool m_network_checked GUARDED_BY(m_mutex){false};
     /** Whether an Update happened since the node started.  */
     bool m_started GUARDED_BY(m_mutex){false};
     std::optional<ParentHeader> m_tip GUARDED_BY(m_mutex);

@@ -5,6 +5,7 @@
 #include <coins.h>
 #include <drivechain/deposit.h>
 #include <drivechain/parentchain.h>
+#include <drivechain/withdrawal.h>
 #include <key.h>
 #include <key_io.h>
 #include <script/interpreter.h>
@@ -13,6 +14,9 @@
 #include <test/util/random.h>
 #include <test/util/setup_common.h>
 #include <undo.h>
+#include <util/chaintype.h>
+
+#include <set>
 
 #include <boost/test/unit_test.hpp>
 
@@ -168,6 +172,31 @@ BOOST_AUTO_TEST_CASE(parent_chain_view)
     BOOST_CHECK(!view.TakeChanges()); // nothing it had before is gone
     BOOST_CHECK(view.CheckDeposit(*MakeDepositTransaction(d2)) == DepositStatus::MISMATCH);
     BOOST_CHECK(view.ConfirmedDeposits(2) == std::vector{other2});
+}
+
+BOOST_AUTO_TEST_CASE(parent_chain_network)
+{
+    FakeParentChain parent{m_rng};
+    parent.Mine();
+    const uint256 genesis{parent.GetHeaders(parent.tip, 10).back().hash};
+
+    // The source has the genesis block of the network the view is for
+    ParentChainView view{parent, /*slot=*/83, /*min_depth=*/3, /*manage_votes=*/false, /*file=*/{}, genesis};
+    BOOST_CHECK(view.CheckNetwork());
+    view.Update();
+
+    // Another network's: nothing from it
+    ParentChainView other{parent, /*slot=*/83, /*min_depth=*/3, /*manage_votes=*/false, /*file=*/{}, m_rng.rand256()};
+    BOOST_CHECK(!other.CheckNetwork());
+    BOOST_CHECK_THROW(other.Update(), DepositSourceError);
+    BOOST_CHECK(other.ConfirmedDeposits(0).empty());
+
+    // Every network has its own parent genesis block
+    std::set<uint256> geneses;
+    for (const ChainType chain : {ChainType::MAIN, ChainType::TESTNET, ChainType::TESTNET4, ChainType::SIGNET, ChainType::REGTEST}) {
+        geneses.insert(ParentGenesisHash(chain));
+    }
+    BOOST_CHECK_EQUAL(geneses.size(), 5U);
 }
 
 BOOST_AUTO_TEST_CASE(parent_chain_view_file)

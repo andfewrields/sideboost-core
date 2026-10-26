@@ -88,6 +88,9 @@ class ParentChainTest:
             [self.light_node_bin, "--network=regtest", "--network-magic=eca5b134", f"--genesis-hash={self.ecx.getblockhash(0)}",
              f"--connect=127.0.0.1:{p2p_port(8)}", f"--rpc-addr=127.0.0.1:{light_rpc}", f"--zmq-addr=tcp://127.0.0.1:{light_zmq}"],
             stdout=self.light_log, stderr=subprocess.STDOUT)
+        # The enforcer exits if it can't reach the light node at its start
+        self.light_node = AuthServiceProxy(f"http://u:p@127.0.0.1:{light_rpc}")
+        self.wait_until(lambda: self.try_call(lambda: self.light_node.getblockcount()))
         self.light_enforcer_log = open(os.path.join(self.options.tmpdir, "enforcer-light.log"), "w")
         self.light_enforcer_proc = subprocess.Popen(
             [self.enforcer_bin, f"--data-dir={enforcer_dir}",
@@ -97,7 +100,6 @@ class ParentChainTest:
              f"--serve-grpc-addr=127.0.0.1:{self.light_enforcer_port}", f"--serve-rpc-addr=127.0.0.1:{rpc_port(12)}"],
             stdout=self.light_enforcer_log, stderr=subprocess.STDOUT)
         self.wait_until(lambda: self.try_call(lambda: self.enforcer("ValidatorService/GetChainTip", port=self.light_enforcer_port)))
-        self.light_node = AuthServiceProxy(f"http://u:p@127.0.0.1:{light_rpc}")
 
     def ecx_invalidate(self, blockhash):
         """Invalidate an ECX block, on the light node too: it follows the

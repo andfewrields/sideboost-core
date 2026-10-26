@@ -97,8 +97,20 @@ BundleEvent ReadBundleEvent(Stream& s)
 
 } // namespace
 
-ParentChainView::ParentChainView(DepositSource& source, uint8_t slot, int min_depth, bool manage_votes, fs::path file)
-    : m_source{source}, m_slot{slot}, m_min_depth{min_depth}, m_manage_votes{manage_votes}, m_file{std::move(file)} {}
+ParentChainView::ParentChainView(DepositSource& source, uint8_t slot, int min_depth, bool manage_votes, fs::path file,
+                                 std::optional<uint256> parent_genesis)
+    : m_source{source}, m_slot{slot}, m_min_depth{min_depth}, m_manage_votes{manage_votes}, m_file{std::move(file)},
+      m_parent_genesis{parent_genesis} {}
+
+bool ParentChainView::CheckNetwork()
+{
+    if (!m_parent_genesis || WITH_LOCK(m_mutex, return m_network_checked)) return true;
+    const std::vector<ParentHeader> genesis{m_source.GetHeaders(*m_parent_genesis, 0)};
+    if (genesis.empty() || genesis[0].height != 0) return false;
+    LOCK(m_mutex);
+    m_network_checked = true;
+    return true;
+}
 
 bool ParentChainView::Load()
 {
@@ -179,6 +191,10 @@ bool ParentChainView::Save() const
 
 void ParentChainView::Update()
 {
+    // Nothing from an enforcer of another network
+    if (!CheckNetwork()) {
+        throw DepositSourceError(strprintf("the enforcer follows another parent chain network: it lacks block %s, the genesis block of this chain's", m_parent_genesis->ToString()));
+    }
     LOCK(m_mutex);
     const ParentHeader tip{m_source.GetTip()};
     if (m_tip && m_tip->hash == tip.hash) {
