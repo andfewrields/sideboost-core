@@ -67,6 +67,21 @@ and only for testing:
 * The genesis block will be re-mined before the real launch, so a beta chain
   won't carry over.
 
+**Mining.** To mine on a node of your own, with a wallet that receives the
+fees:
+
+```bash
+contrib/sideboost-miner.sh 1      # full speed
+contrib/sideboost-miner.sh 0.5    # in each 10 s cycle: sleep 5 s, mine up to 5 s
+```
+
+The argument is the speed, 0 to 1. Each cycle the script sleeps
+`10 * (1 - speed)` seconds, then mines at full speed for `10 * speed`
+seconds or until it finds a block, and starts over. A block from another node
+also starts the cycle over (`generatetoaddress` alone would keep mining a
+stale block). Options: `-w WALLET`, `-c path/to/sideboost-cli`, and further
+`sideboost-cli` options after the speed.
+
 License
 -------
 
