@@ -311,8 +311,8 @@ public:
         assert(consensus.hashGenesisBlock == uint256{"0000009329242317161c8b0152052ee12e4086bfd2bdb6ae4c2473cc3186d533"});
         assert(genesis.hashMerkleRoot == uint256{"a5e87337eff5a33182d0b4d583a7a34909f4192625a9a3442cb597b92bdd3cf7"});
 
-        // No seeds yet: connect with -addnode / -connect.
-        vFixedSeeds.clear();
+        // No DNS seeds yet: the fixed seeds of contrib/seeds/nodes_main.txt
+        vFixedSeeds = std::vector<uint8_t>(std::begin(chainparams_seed_main), std::end(chainparams_seed_main));
         vSeeds.clear();
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,63);  // 'S'
