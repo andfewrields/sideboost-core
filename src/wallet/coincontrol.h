@@ -95,6 +95,11 @@ public:
     bool fOverrideFeeRate = false;
     //! Override the wallet's fee rate if set
     std::optional<CFeeRate> m_feerate;
+    //! Pay exactly this fee for the whole transaction, if set, instead of a fee
+    //! rate: coins are selected at the required (minimum) fee rate, and
+    //! m_feerate and the confirmation target are ignored. Without change, the
+    //! fee may exceed it by what a change output would have cost.
+    std::optional<CAmount> m_total_fee;
     //! Override the default confirmation target if set
     std::optional<unsigned int> m_confirm_target;
     //! Override the wallet's m_signal_rbf if set

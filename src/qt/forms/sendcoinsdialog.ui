@@ -327,7 +327,7 @@
                   <enum>Qt::ActionsContextMenu</enum>
                  </property>
                  <property name="text">
-                  <string notr="true">0.00 NMC</string>
+                  <string notr="true">0.00 ECX</string>
                  </property>
                  <property name="textInteractionFlags">
                   <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByKeyboard|Qt::TextSelectableByMouse</set>
@@ -378,7 +378,7 @@
                   <enum>Qt::ActionsContextMenu</enum>
                  </property>
                  <property name="text">
-                  <string notr="true">0.00 NMC</string>
+                  <string notr="true">0.00 ECX</string>
                  </property>
                  <property name="textInteractionFlags">
                   <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByKeyboard|Qt::TextSelectableByMouse</set>
@@ -432,7 +432,7 @@
                   <enum>Qt::ActionsContextMenu</enum>
                  </property>
                  <property name="text">
-                  <string notr="true">0.00 NMC</string>
+                  <string notr="true">0.00 ECX</string>
                  </property>
                  <property name="textInteractionFlags">
                   <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByKeyboard|Qt::TextSelectableByMouse</set>
@@ -461,7 +461,7 @@
                   <enum>Qt::ActionsContextMenu</enum>
                  </property>
                  <property name="text">
-                  <string notr="true">0.00 NMC</string>
+                  <string notr="true">0.00 ECX</string>
                  </property>
                  <property name="textInteractionFlags">
                   <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByKeyboard|Qt::TextSelectableByMouse</set>
@@ -941,6 +941,47 @@ Note:  Since the fee is calculated on a per-byte basis, a fee rate of "100 satos
                </item>
               </layout>
              </item>
+             <item row="2" column="0">
+              <widget class="QRadioButton" name="radioTotalFee">
+               <property name="text">
+                <string>Total fee:</string>
+               </property>
+               <attribute name="buttonGroup">
+                <string notr="true">groupFee</string>
+               </attribute>
+              </widget>
+             </item>
+             <item row="2" column="1">
+              <layout class="QHBoxLayout" name="horizontalLayoutTotalFee">
+               <item>
+                <widget class="BitcoinAmountField" name="totalFee">
+                 <property name="toolTip">
+                  <string>The fee for the whole transaction, whatever its size. It must be at least 1 sat.</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="labelTotalFee">
+                 <property name="text">
+                  <string>for the whole transaction</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="horizontalSpacerTotalFee">
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>1</width>
+                   <height>1</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+              </layout>
+             </item>
              <item row="0" column="1">
               <layout class="QVBoxLayout" name="verticalLayoutFee3" stretch="0,0,1">
                <property name="spacing">
@@ -1181,7 +1222,7 @@ Note:  Since the fee is calculated on a per-byte basis, a fee rate of "100 satos
           <cursorShape>IBeamCursor</cursorShape>
          </property>
          <property name="text">
-          <string notr="true">123.456 NMC</string>
+          <string notr="true">123.456 ECX</string>
          </property>
          <property name="textInteractionFlags">
           <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByKeyboard|Qt::TextSelectableByMouse</set>

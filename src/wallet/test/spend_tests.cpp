@@ -32,6 +32,38 @@ BOOST_AUTO_TEST_CASE(max_signed_input_size_uses_external_outpoint)
     BOOST_CHECK_EQUAL(high_r, low_r + 1);
 }
 
+BOOST_FIXTURE_TEST_CASE(TotalFee, TestChain100Setup)
+{
+    CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
+    auto wallet = CreateSyncedWallet(*m_node.chain, WITH_LOCK(Assert(m_node.chainman)->GetMutex(), return m_node.chainman->ActiveChain()), coinbaseKey);
+
+    // The fee is exactly the total fee asked for, whatever the transaction's
+    // size, with the rest as change
+    auto create = [&wallet](CAmount total_fee, CAmount amount, bool subtract_fee) {
+        CCoinControl coin_control;
+        coin_control.m_total_fee = total_fee;
+        // Ignored with a total fee
+        coin_control.m_feerate.emplace(1'000'000);
+        return CreateTransaction(*wallet, {CRecipient{PubKeyDestination({}), amount, subtract_fee}}, /*change_pos=*/std::nullopt, coin_control);
+    };
+    for (const CAmount total_fee : {CAmount{1}, CAmount{2}, CAmount{12'345}, COIN / 10}) {
+        const auto res{create(total_fee, COIN, /*subtract_fee=*/false)};
+        BOOST_REQUIRE(res);
+        BOOST_CHECK_EQUAL(res->fee, total_fee);
+        BOOST_CHECK_EQUAL(res->tx->vout.size(), 2U);
+        BOOST_CHECK_EQUAL(res->tx->vout.at(res->change_pos.value() == 0 ? 1 : 0).nValue, COIN);
+    }
+
+    // Subtracted from the recipient's amount
+    const auto sffo{create(7, COIN, /*subtract_fee=*/true)};
+    BOOST_REQUIRE(sffo);
+    BOOST_CHECK_EQUAL(sffo->fee, 7);
+    BOOST_CHECK_EQUAL(sffo->tx->vout.at(sffo->change_pos.value() == 0 ? 1 : 0).nValue, COIN - 7);
+
+    // Never 0
+    BOOST_CHECK(!create(0, COIN, /*subtract_fee=*/false));
+}
+
 BOOST_FIXTURE_TEST_CASE(SubtractFee, TestChain100Setup)
 {
     CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));

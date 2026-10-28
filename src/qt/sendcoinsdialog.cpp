@@ -127,9 +127,14 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
         settings.setValue("nSmartFeeSliderPosition", 0);
     ui->groupFee->setId(ui->radioSmartFee, 0);
     ui->groupFee->setId(ui->radioCustomFee, 1);
-    ui->groupFee->button((int)std::max(0, std::min(1, settings.value("nFeeRadio").toInt())))->setChecked(true);
+    ui->groupFee->setId(ui->radioTotalFee, 2);
+    ui->groupFee->button((int)std::max(0, std::min(2, settings.value("nFeeRadio").toInt())))->setChecked(true);
     ui->customFee->SetAllowEmpty(false);
     ui->customFee->setValue(settings.value("nTransactionFee").toLongLong());
+    // A total fee of at least 1 sat (consensus requires one)
+    ui->totalFee->SetAllowEmpty(false);
+    ui->totalFee->SetMinValue(1);
+    ui->totalFee->setValue(std::max<qint64>(1, settings.value("nTotalFee", 1).toLongLong()));
     minimizeFeeSection(settings.value("fFeeSectionMinimized").toBool());
 
     GUIUtil::ExceptionSafeConnect(ui->sendButton, &QPushButton::clicked, this, &SendCoinsDialog::sendButtonClicked);
@@ -180,6 +185,7 @@ void SendCoinsDialog::setModel(WalletModel *_model)
         connect(ui->groupFee, &QButtonGroup::idClicked, this, &SendCoinsDialog::coinControlUpdateLabels);
 
         connect(ui->customFee, &BitcoinAmountField::valueChanged, this, &SendCoinsDialog::coinControlUpdateLabels);
+        connect(ui->totalFee, &BitcoinAmountField::valueChanged, this, &SendCoinsDialog::coinControlUpdateLabels);
         CAmount requiredFee = model->wallet().getRequiredFee(1000);
         ui->customFee->SetMinValue(requiredFee);
         if (ui->customFee->value() < requiredFee) {
@@ -228,6 +234,7 @@ SendCoinsDialog::~SendCoinsDialog()
     settings.setValue("nFeeRadio", ui->groupFee->checkedId());
     settings.setValue("nConfTarget", getConfTargetForIndex(ui->confTargetSelector->currentIndex()));
     settings.setValue("nTransactionFee", (qint64)ui->customFee->value());
+    settings.setValue("nTotalFee", (qint64)ui->totalFee->value());
 
     delete ui;
 }
@@ -256,6 +263,12 @@ bool SendCoinsDialog::PrepareSendText(QString& question_string, QString& informa
 
     if(!valid || recipients.isEmpty())
     {
+        return false;
+    }
+
+    // Never send with a total fee of 0: every transaction pays at least 1 sat
+    if (ui->radioTotalFee->isChecked() && ui->totalFee->value() < 1) {
+        ui->totalFee->setValid(false);
         return false;
     }
 
@@ -703,6 +716,7 @@ void SendCoinsDialog::refreshBalance()
 {
     setBalance(model->getCachedBalance());
     ui->customFee->setDisplayUnit(model->getOptionsModel()->getDisplayUnit());
+    ui->totalFee->setDisplayUnit(model->getOptionsModel()->getDisplayUnit());
     updateSmartFeeLabel();
 }
 
@@ -796,6 +810,8 @@ void SendCoinsDialog::updateFeeSectionControls()
     ui->labelCustomFeeWarning   ->setEnabled(ui->radioCustomFee->isChecked());
     ui->labelCustomPerKilobyte  ->setEnabled(ui->radioCustomFee->isChecked());
     ui->customFee               ->setEnabled(ui->radioCustomFee->isChecked());
+    ui->totalFee                ->setEnabled(ui->radioTotalFee->isChecked());
+    ui->labelTotalFee           ->setEnabled(ui->radioTotalFee->isChecked());
 }
 
 void SendCoinsDialog::updateFeeMinimizedLabel()
@@ -805,6 +821,8 @@ void SendCoinsDialog::updateFeeMinimizedLabel()
 
     if (ui->radioSmartFee->isChecked())
         ui->labelFeeMinimized->setText(ui->labelSmartFee->text());
+    else if (ui->radioTotalFee->isChecked())
+        ui->labelFeeMinimized->setText(tr("%1 in total").arg(BitcoinUnits::formatWithUnit(model->getOptionsModel()->getDisplayUnit(), ui->totalFee->value())));
     else {
         ui->labelFeeMinimized->setText(tr("%1/kvB").arg(BitcoinUnits::formatWithUnit(model->getOptionsModel()->getDisplayUnit(), ui->customFee->value())));
     }
@@ -816,6 +834,11 @@ void SendCoinsDialog::updateCoinControlState()
         m_coin_control->m_feerate = CFeeRate(ui->customFee->value());
     } else {
         m_coin_control->m_feerate.reset();
+    }
+    if (ui->radioTotalFee->isChecked()) {
+        m_coin_control->m_total_fee = ui->totalFee->value();
+    } else {
+        m_coin_control->m_total_fee.reset();
     }
     // Avoid using global defaults when sending money from the GUI
     // Either custom fee will be used or if not selected, the confirmation target from dropdown box
@@ -838,6 +861,7 @@ void SendCoinsDialog::updateSmartFeeLabel()
         return;
     updateCoinControlState();
     m_coin_control->m_feerate.reset(); // Explicitly use only fee estimation rate for smart fee labels
+    m_coin_control->m_total_fee.reset();
     std::optional<int> returned_target;
     FeeReason reason;
     CFeeRate feeRate = CFeeRate(model->wallet().getMinimumFee(1000, *m_coin_control, &returned_target, &reason));

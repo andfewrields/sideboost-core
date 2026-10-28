@@ -1158,9 +1158,16 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     // Set discard feerate
     coin_selection_params.m_discard_feerate = GetDiscardRate(wallet);
 
-    // Get the fee rate to use effective values in coin selection
-    auto min_fee_rate{GetMinimumFeeRate(wallet, coin_control)};
+    // Get the fee rate to use effective values in coin selection. With a total
+    // fee, coins are selected at the required fee rate, and change below the
+    // discard rate isn't dropped into the fee, which must stay the total.
+    auto min_fee_rate{coin_control.m_total_fee ? MinimumFeeRateResult{GetRequiredFeeRate(wallet), FeeReason::REQUIRED, std::nullopt}
+                                               : GetMinimumFeeRate(wallet, coin_control)};
     coin_selection_params.m_effective_feerate = min_fee_rate.fee_rate;
+    if (coin_control.m_total_fee) {
+        if (*coin_control.m_total_fee < 1) return util::Error{_("The total fee must be at least 1 sat")};
+        coin_selection_params.m_discard_feerate = std::min(coin_selection_params.m_discard_feerate, coin_selection_params.m_effective_feerate);
+    }
     // Do not, ever, assume that it's fine to change the fee rate if the user has explicitly
     // provided one
     if (coin_control.m_feerate && coin_selection_params.m_effective_feerate > *coin_control.m_feerate) {
@@ -1202,6 +1209,8 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     // Include the fees for things that aren't inputs, excluding the change output
     const CAmount not_input_fees = coin_selection_params.m_effective_feerate.GetFee(coin_selection_params.m_subtract_fee_outputs ? 0 : coin_selection_params.tx_noinputs_size);
     CAmount selection_target = recipients_sum + not_input_fees;
+    // A total fee is paid on top of the recipients' amounts (unless subtracted from them)
+    if (coin_control.m_total_fee && !coin_selection_params.m_subtract_fee_outputs) selection_target += *coin_control.m_total_fee;
 
     // This can only happen if feerate is 0, and requested destinations are value of 0 (e.g. OP_RETURN)
     // and no pre-selected inputs. This will result in 0-input transaction, which is consensus-invalid anyways
@@ -1342,6 +1351,13 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
         return util::Error{_("Missing solving data for estimating transaction size")};
     }
     CAmount fee_needed = coin_selection_params.m_effective_feerate.GetFee(nBytes) + result.GetTotalBumpFees();
+    if (coin_control.m_total_fee) {
+        if (*coin_control.m_total_fee < fee_needed) {
+            return util::Error{strprintf(_("The total fee (%s) is below the minimum for this transaction (%s)"),
+                                         FormatMoney(*coin_control.m_total_fee), FormatMoney(fee_needed))};
+        }
+        fee_needed = *coin_control.m_total_fee;
+    }
     const CAmount output_value = CalculateOutputValue(txNew);
     Assume(recipients_sum + change_amount == output_value);
     CAmount current_fee = result.GetSelectedValue() - output_value;

@@ -474,7 +474,7 @@ public:
         FeeReason* reason) override
     {
         auto min_fee_rate{GetMinimumFeeRate(*m_wallet, coin_control)};
-        auto result = GetMinimumFee(min_fee_rate, tx_bytes);
+        auto result = coin_control.m_total_fee ? *coin_control.m_total_fee : GetMinimumFee(min_fee_rate, tx_bytes);
         if (returned_target) *returned_target = min_fee_rate.returned_target;
         if (reason) *reason = min_fee_rate.fee_reason;
         return result;
